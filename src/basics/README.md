@@ -18,6 +18,8 @@
 | [02 - 类的三种方法与 property](02-class-and-methods.md) | `@classmethod` / `@staticmethod` / `@property` | `static` 方法、getter/setter |
 | [03 - 推导式与生成器表达式](03-comprehensions.md) | 四种推导式、作用域、嵌套顺序、惰性求值 | Stream 的 `map` / `filter` / `collect` |
 | [04 - 迭代协议、for-else 与切片](04-iteration-protocol.md) | `__iter__` / `__next__`、`for...else`、切片协议 | `Iterable` / `Iterator`、`subList` |
+| [05 - with 语句与上下文管理器](05-with-statement.md) | `__enter__`/`__exit__`、`@contextmanager`、吞异常、LIFO | try-with-resources |
+| [06 - 容易误解的关键字](06-keywords.md) | `lambda`/`global`/`nonlocal`/`yield`/`del`/`assert`/`is`/三元 | 逐项对照与陷阱 |
 
 ## 为什么单独成章
 
@@ -64,5 +66,7 @@ s[100]       # 单索引越界才抛 IndexError
 2. **类的三种方法** —— 写类时立刻会用上，尤其是替代构造器
 3. **推导式** —— 日常数据处理的主力语法
 4. **迭代协议** —— 理解生成器、异步迭代器的底层机制
+5. **`with` 语句** —— 资源管理的基石，项目里到处在用
+6. **容易误解的关键字** —— `is` vs `==`、`assert` 在 `-O` 下失效等细节
 
 > 📁 [本部分代码目录](../code/basics/)

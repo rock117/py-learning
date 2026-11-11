@@ -9,6 +9,8 @@
 - [类的三种方法与 property](./basics/02-class-and-methods.md)
 - [推导式与生成器表达式](./basics/03-comprehensions.md)
 - [迭代协议、for-else 与切片](./basics/04-iteration-protocol.md)
+- [with 语句与上下文管理器](./basics/05-with-statement.md)
+- [容易误解的关键字](./basics/06-keywords.md)
 
 # 第一部分：异步编程
 
