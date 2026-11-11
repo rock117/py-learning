@@ -348,6 +348,121 @@ isinstance(Circle(), Drawable)    # True，只要形状匹配（无需继承）
 > ⚠️ `isinstance` 检查 `Protocol` 需要 `@runtime_checkable`，而且它**只检查方法名是否存在**，
 > 不检查参数和返回类型——`isinstance` 通过不代表类型真的对得上。
 
+## csv：CSV 读写
+
+> [Java 对比] Java 没有内置 CSV 支持，要引入 OpenCSV / commons-csv；Python 的 `csv` 是标准库。
+
+### 基础读写
+
+> [csv 基础读写](../code/libraries/02_stdlib_data.py#L742-L774)
+
+```python
+{{#include ../code/libraries/02_stdlib_data.py:742:774}}
+```
+
+`csv.writer` 会自动处理引号与转义：字段含逗号会被包引号，含引号会翻倍转义。这比手写 `split(',')` 安全得多。
+
+`DictReader` 返回按列名索引的行，对应 Java 里用表头去 `map.get("name")` 的做法：
+
+```python
+with open("data.csv", newline="", encoding="utf-8") as f:
+    for row in csv.DictReader(f):
+        print(row["name"], row["score"])
+```
+
+### 四个高频坑
+
+> [csv 常见坑](../code/libraries/02_stdlib_data.py#L777-L810)
+
+```python
+{{#include ../code/libraries/02_stdlib_data.py:777:810}}
+```
+
+| 坑 | 现象 | 解法 |
+|----|------|------|
+| **忘记 `newline=''`** | Windows 下读写多出空行（`\r\r\n`） | `open(path, newline='')` |
+| **所有字段都是 `str`** | `row["score"]` 是 `'90.5'` 不是 `90.5` | 手动 `float()` / `int()` |
+| **非逗号分隔** | 分号文件读成单列 | `delimiter=';'`（TSV 用 `'\t'`） |
+| **Excel 导出的 BOM** | 首列名变成 `'\ufeffid'` | `encoding='utf-8-sig'` |
+
+> ⚠️ `newline=''` 是最高频的坑。csv 模块自己处理换行，而 Python 的文本模式默认也会把 `\n` 转成 `\r\n`，两者叠加就多出一个 `\r`。
+
+> [Java 对比] commons-csv 的 `CSVParser` 同样会在字段里保留字符串，但表头处理更显式；Python 的 `DictReader` 直接把表头当成 key，更省事也更依赖表头存在。
+
+## decimal / fractions / statistics：精确数值与统计
+
+### `decimal`：金额计算必用
+
+> [Java 对比] `decimal` ~ `java.math.BigDecimal`，这是从 Java 过来最直接的对应。
+
+> [decimal 示例](../code/libraries/02_stdlib_data.py#L813-L841)
+
+```python
+{{#include ../code/libraries/02_stdlib_data.py:813:841}}
+```
+
+```python
+0.1 + 0.2                  # 0.30000000000000004
+0.1 + 0.2 == 0.3           # False
+
+Decimal("0.1") + Decimal("0.2") == Decimal("0.3")    # True
+```
+
+两个关键点：
+
+**1. 构造时传字符串，不要传 float**
+
+```python
+Decimal(0.1)      # 0.1000000000000000055511151231257827...   把 float 误差带进来了
+Decimal("0.1")    # 0.1                                        正确
+```
+
+**2. 舍入模式要显式指定**
+
+```python
+money = Decimal("12.345")
+money.quantize(Decimal("0.01"))                              # 12.34  默认 ROUND_HALF_EVEN
+money.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)      # 12.35
+```
+
+> ⚠️ 与 `BigDecimal.setScale(2, RoundingMode.HALF_UP)` 完全对应。金融场景建议**显式指定**舍入模式，不要依赖默认值。
+
+### `fractions`：有理数
+
+> [fractions 示例](../code/libraries/02_stdlib_data.py#L844-L856)
+
+```python
+{{#include ../code/libraries/02_stdlib_data.py:844:856}}
+```
+
+```python
+Fraction(1, 3) + Fraction(1, 6)    # 1/2，自动约分
+Fraction(4, 8)                     # 1/2
+```
+
+Java 没有内置有理数类型。需要**逐步精确、无累积误差**的运算（概率、比例）时用它，比 `Decimal` 更精确且不会无限长。
+
+### `statistics`：基础统计
+
+> [statistics 示例](../code/libraries/02_stdlib_data.py#L859-L889)
+
+```python
+{{#include ../code/libraries/02_stdlib_data.py:859:889}}
+```
+
+| 函数 | 含义 | 备注 |
+|------|------|------|
+| `mean` | 算术均值 | 返回 `int` 或 `float` |
+| `fmean` | 浮点均值 | **快约 10 倍**，大数据用这个 |
+| `median` | 中位数 | |
+| `mode` | 众数 | 3.8+ 返回第一个众数，多众数用 `multimode` |
+| `stdev` / `variance` | 样本标准差 / 方差 | 总体版本是 `pstdev` / `pvariance` |
+| `quantiles(data, n=4)` | 四分位数 | n=4 即 25%/50%/75% |
+
+> [要点] 数据量大时优先 `fmean`——它不维护精确分数，直接浮点累加，10 万条数据实测快一个数量级。
+
+> [Java 对比] 无内置统计库，需要 Apache Commons Math 或手写。`stdev` 默认是**样本**标准差（n-1），与 Excel 的 `STDEV.S` 一致，不是 `STDEV.P`。
+
 ## 小结
 
 - **`re.match` 是前缀匹配**，Java `matches()` 的等价物是 `re.fullmatch`；命名分组用 `(?P<name>...)`

@@ -2,6 +2,14 @@
 
 - [简介](./README.md)
 
+# 第零部分：语言基础补遗
+
+- [概览](./basics/README.md)
+- [星号解包：* 与 **](./basics/01-star-unpacking.md)
+- [类的三种方法与 property](./basics/02-class-and-methods.md)
+- [推导式与生成器表达式](./basics/03-comprehensions.md)
+- [迭代协议、for-else 与切片](./basics/04-iteration-protocol.md)
+
 # 第一部分：异步编程
 
 - [概览](./async/README.md)

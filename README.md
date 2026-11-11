@@ -22,10 +22,11 @@ mdbook build
 
 ## 内容结构
 
-全书共 **4 部分 33 章**，含 **33 个可直接运行的示例文件**。
+全书共 **5 部分 37 章**，含 **37 个可直接运行的示例文件**。
 
 | 部分 | 章节 | 内容 |
 |------|------|------|
+| **零、语言基础补遗** | 4 章 | 星号解包、`@classmethod`/`@staticmethod`/`@property`、推导式全集、迭代协议与切片 |
 | **一、异步编程** | 9 章 | 协程、事件循环、任务管理、异步迭代器、异步上下文管理器、同步原语、HTTP/文件 I/O、取消与超时、与 Java 对比 |
 | **二、高级特性** | 13 章 | 类型系统、元编程、装饰器、生成器进阶、并发与并行、内存与性能、现代语法、上下文管理器、函数式工具、内省反射、包管理、C 扩展、其他 |
 | **三、实战经验** | 3 章 | 性能优化深入、最佳实践、16 个常见陷阱 |
@@ -47,15 +48,17 @@ mdbook build
 ├── src/
 │   ├── SUMMARY.md         # 全书目录（mdbook 导航由它驱动）
 │   ├── README.md          # 书籍首页
+│   ├── basics/            # 第零部分：4 章（语言基础补遗）
 │   ├── async/             # 第一部分：9 章
 │   ├── advanced/          # 第二部分：13 章
 │   ├── practice/          # 第三部分：3 章
 │   ├── libraries/         # 第四部分：8 章
-│   └── code/              # 全部可运行示例（33 个 .py）
-│       ├── async/         ├── advanced/
-│       ├── practice/      └── libraries/
+│   └── code/              # 全部可运行示例（37 个 .py）
+│       ├── basics/        ├── async/
+│       ├── advanced/      ├── practice/      └── libraries/
 └── tools/
-    └── toc_gen.py         # 文档与源码的同步工具
+    ├── toc_gen.py         # 文档与源码的同步工具
+    └── toc_reset.py       # 剥离 include，回到纯链接状态
 ```
 
 ## 运行示例
@@ -83,9 +86,12 @@ pip install numpy pandas polars matplotlib sqlalchemy \
 ```bash
 python tools/toc_gen.py --check   # 检查是否同步（适合挂 CI）
 python tools/toc_gen.py --fix     # 自动校正所有 include 的行区间
+python tools/toc_reset.py --fix   # 出问题时：剥离全部 include，回到纯链接
 ```
 
 脚本按「行号 → 所属顶层函数/类」定位，函数内部增删几行后能自动重算区间；若行号已完全对不上任何函数，会**明确报错**而非静默生成错误内容。
+
+> 如果 include 内容出现错乱，先跑 `toc_reset.py --fix` 把文档退回“只有链接”的状态，再跑 `toc_gen.py --fix` 重建，比逐处修补可靠。
 
 ## 贡献
 

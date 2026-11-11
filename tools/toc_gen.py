@@ -114,7 +114,14 @@ def find_block_by_line(blocks: list[Block], line: int, lines: list[str] | None =
 
 
 def process_md(md_file: Path, fix: bool, verbose: bool) -> tuple[int, int, list[str]]:
-    """处理一个 md 文件，返回 (转换数, 跳过数, 错误列表)。"""
+    """处理一个 md 文件，返回 (转换数, 跳过数, 错误列表)。
+
+    实现要点：先扫描出所有待替换区间（基于【原始的】文本偏移），
+    然后从后往前逐个应用。倒序应用能保证前面的偏移不会被后面的插入拉开。
+
+    早期版本先收集全部区间、最后一次性倒序拼接，结果拼接时用【已变长的文本】
+    重算了偏移，导致内容错位和重复。这里改成逐个原地替换。
+    """
     text = md_file.read_text(encoding="utf-8")
     converted = skipped = 0
     errors: list[str] = []
@@ -141,23 +148,38 @@ def process_md(md_file: Path, fix: bool, verbose: bool) -> tuple[int, int, list[
         # include 展开的是裸文本，必须自己包 fences 才会被渲染成代码块
         fenced = f"```python\n{inc}\n```"
 
-        # 幂等：链接后紧跟的段落里已经有同一条 include 就跳过
-        tail = text[m.end(): m.end() + 300]
-        if inc in tail:
-            skipped += 1
-            continue
-
         new_text = (
             f"{m.group('prefix')}{m.group('title')}]"
             f"({m.group('path')}#L{block.start}-L{block.end})\n\n{fenced}"
         )
+
+        # 已经转换过的片段：先检查现有 include 的行区间是否仍然正确
+        # （源码变动后行号会漂移，不能简单认为“有 include 就跳过”）
+        tail = text[m.end(): m.end() + 400]
+        stale = re.search(
+            r"\{\{#include " + re.escape(f"../code/{py_rel}") + r":\d+:\d+\}\}", tail
+        )
+        if stale:
+            if stale.group(0) == inc:
+                skipped += 1
+                continue
+            # 链接 + 旧 include 组成的整段，一起替换成新内容
+            seg_end = m.end() + stale.end()
+            replacements.append((m.start(), seg_end, new_text))
+            converted += 1
+            if verbose:
+                print(f"  {where}  L{start} -> {block.name} "
+                      f"[{block.start}-{block.end}] (修正过期区间)")
+            continue
+
         replacements.append((m.start(), m.end(), new_text))
         converted += 1
         if verbose:
             print(f"  {where}  L{start} -> {block.name} [{block.start}-{block.end}]")
 
     if fix and replacements:
-        for s, e, new in reversed(replacements):
+        # 按起点倒序逐个替换，避免前面的插入影响后面的偏移
+        for s, e, new in sorted(replacements, key=lambda r: r[0], reverse=True):
             text = text[:s] + new + text[e:]
         md_file.write_text(text, encoding="utf-8")
 

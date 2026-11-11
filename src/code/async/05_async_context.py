@@ -181,6 +181,75 @@ async def demo_http_session():
 
 
 # ---------------------------------------------------------------------------
+# 额外：contextvars —— 异步世界的 ThreadLocal
+# ---------------------------------------------------------------------------
+# [Java 对比] ThreadLocal / MDC 在 asyncio 下【不可靠】：
+#             同一个线程里会跑成百上千个协程，ThreadLocal 的「线程级隔离」
+#             就退化成了「全局共享」，导致不同请求的 traceId 互相串味。
+#             contextvars 提供「协程级隔离」，是 asyncio 下唯一正确的选择。
+
+import contextvars
+
+_request_id: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
+_user_id: contextvars.ContextVar[str] = contextvars.ContextVar("user_id", default="-")
+
+
+async def handle_request(req_id: str, user: str) -> str:
+    """模拟一个请求处理：设置上下文变量后调用下游。"""
+    token_req = _request_id.set(req_id)
+    token_user = _user_id.set(user)
+    try:
+        await asyncio.sleep(0.01)
+        return await downstream()
+    finally:
+        # 重置为进入前的值，避免污染调用方
+        _request_id.reset(token_req)
+        _user_id.reset(token_user)
+
+
+async def downstream() -> str:
+    """下游函数不需要层层传参就能拿到请求上下文。"""
+    await asyncio.sleep(0.01)
+    return f"[{_request_id.get()}] user={_user_id.get()}"
+
+
+async def demo_contextvars():
+    """contextvars：协程间的上下文隔离。"""
+    print("\n=== contextvars：协程级上下文隔离 ===")
+
+    # 并发 3 个请求，每个都有自己的 request_id
+    results = await asyncio.gather(
+        handle_request("req-A", "alice"),
+        handle_request("req-B", "bob"),
+        handle_request("req-C", "carol"),
+    )
+    for r in results:
+        print(f"  {r}")
+    print("  -> 三个协程上下文互不干扰（ThreadLocal 在这里会串味）")
+
+    # 对比：用 threading.local 在协程里失败的场景（同一线程）
+    import threading
+    tl = threading.local()
+
+    async def hold_threadlocal(name):
+        tl.name = name
+        await asyncio.sleep(0.01)      # 切换到其他协程
+        return getattr(tl, "name", "<未设置>")
+
+    tl_results = await asyncio.gather(
+        hold_threadlocal("A"), hold_threadlocal("B"), hold_threadlocal("C")
+    )
+    print(f"\n  threadlocal 结果: {tl_results}")
+    print("  -> 全变成最后一个写入的值，因为它们在同一个线程里")
+
+    # 默认值
+    print(f"\n  未设置时的默认值: request_id={_request_id.get()!r}")
+    print("  [要点] ContextVar 创建时传 default=，避免 KeyError")
+    print("  [Java 对比] MDC.put(\"traceId\", id) 不要在 async 代码里用；"
+          "改用 ContextVar，日志时间接读取")
+
+
+# ---------------------------------------------------------------------------
 async def main():
     print("=" * 60)
     print("05 - 异步上下文管理器")
@@ -192,6 +261,7 @@ async def main():
     await demo_connection_pool()
     await demo_nested()
     await demo_http_session()
+    await demo_contextvars()
 
     print("\n" + "=" * 60)
     print("小结：")

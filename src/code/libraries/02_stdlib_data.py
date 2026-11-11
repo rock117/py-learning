@@ -733,6 +733,158 @@ def demo_typing_alias():
 
 
 # =============================================================================
+# 第七部分：csv 模块
+# =============================================================================
+# [Java 对比] Java 没有内置 CSV 支持，需要 OpenCSV / commons-csv；
+#             Python 的 csv 是标准库，直接可用。
+
+
+def demo_csv_basic():
+    """csv 读写基础：reader / writer / DictReader。"""
+    print("\n=== 16. csv 基础读写 ===")
+    import csv
+    import io
+
+    # 用 StringIO 模拟文件，避免落盘
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["id", "name", "score"])
+    writer.writerows([
+        [1, "Alice", 90.5],
+        [2, "Bob, Jr.", 88.0],      # 含逗号，csv 会自动加引号
+        [3, 'Carol "C"', 95.0],    # 含引号，csv 会自动转义
+    ])
+    text = buf.getvalue()
+    print("  写入内容:")
+    for line in text.rstrip().splitlines():
+        print(f"    {line}")
+
+    # 读回：reader 返回列表，DictReader 返回有序字典
+    buf.seek(0)
+    print("  reader 逐行:")
+    for row in csv.reader(buf):
+        print(f"    {row}")
+
+    buf.seek(0)
+    print("  DictReader 按列名:")
+    for row in csv.DictReader(buf):
+        print(f"    id={row['id']} name={row['name']!r} score={row['score']}")
+
+    print("  [要点] 读文件时务必 open(path, newline='')，"
+          "否则 Windows 上会出现多余空行")
+
+
+def demo_csv_pitfalls():
+    """csv 三个高频坑。"""
+    print("\n=== 17. csv 常见坑 ===")
+    import csv
+    import io
+
+    # 坑 1：newline='' 的必要性
+    print("  坑 1  必须 open(..., newline='')")
+    print("         Windows 下用默认 newline=None 会产生空行（\\r\\r\\n）")
+    print("         写入同理: open('out.csv', 'w', newline='')")
+
+    # 坑 2：所有字段都读成字符串
+    buf = io.StringIO("id,score\n1,90.5\n")
+    row = next(csv.DictReader(buf))
+    print(f"\n  坑 2  全部是字符串: {row}   类型: {type(row['score']).__name__}")
+    print("         需要自己转换: float(row['score'])")
+
+    # 坑 3：分隔符不是逗号
+    buf = io.StringIO("a;b;c\n1;2;3\n")
+    rows = list(csv.reader(buf, delimiter=";"))
+    print(f"\n  坑 3  非逗号分隔需传 delimiter: {rows}")
+    print("         TSV 用 delimiter='\\t'；Excel 导出的分号文件很常见")
+
+    # 坑 4：BOM
+    print("\n  坑 4  Excel 导出的 UTF-8 常带 BOM，首列名会变成 '\\ufeffid'")
+    print("         读时用 encoding='utf-8-sig' 可自动去掉")
+
+
+# =============================================================================
+# 第八部分：decimal / fractions / statistics
+# =============================================================================
+# [Java 对比] decimal ~ java.math.BigDecimal（金额计算必用）
+#             fractions ~ 无直接对应（Java 需要自己实现）
+#             statistics ~ 无对应（Java 需 Apache Commons Math）
+
+
+def demo_decimal():
+    """Decimal：精确十进制运算，替代 BigDecimal。"""
+    print("\n=== 18. decimal 精确运算 ===")
+    from decimal import Decimal, getcontext, ROUND_HALF_UP
+
+    # 浮点数误差
+    print(f"  float 误差:      0.1 + 0.2 = {0.1 + 0.2}")
+    print(f"  float 相等判断:  0.1 + 0.2 == 0.3 -> {0.1 + 0.2 == 0.3}")
+
+    # Decimal 精确
+    a, b = Decimal("0.1"), Decimal("0.2")
+    print(f"  Decimal 运算:    {a} + {b} = {a + b}")
+    print(f"  Decimal 相等:    {a + b} == Decimal('0.3') -> {a + b == Decimal('0.3')}")
+
+    # 构造：优先用字符串，不要用 float
+    print(f"\n  Decimal(0.1)      = {Decimal(0.1)}   <- 把 float 的误差也带进来了")
+    print(f"  Decimal('0.1')    = {Decimal('0.1')}    <- 正确写法")
+
+    # 舍入模式与位数
+    getcontext().prec = 6
+    value = Decimal(1) / Decimal(3)
+    print(f"\n  1/3 精度6位:      {value}")
+    money = Decimal("12.345")
+    print(f"  默认舍入:         {money.quantize(Decimal('0.01'))}")
+    print(f"  ROUND_HALF_UP:    "
+          f"{money.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)}")
+
+    print("  [Java 对比] 等价于 BigDecimal.setScale(2, RoundingMode.HALF_UP)")
+    print("  [要点] 金额、利率一律用 Decimal；构造时传字符串，别传 float")
+
+
+def demo_fractions():
+    """Fraction：有理数精确表示。"""
+    print("\n=== 19. fractions 有理数 ===")
+    from fractions import Fraction
+
+    f = Fraction(1, 3)
+    print(f"  Fraction(1, 3) = {f}")
+    print(f"  运算: 1/3 + 1/6 = {Fraction(1, 3) + Fraction(1, 6)}")
+    print(f"  自动约分: Fraction(4, 8) = {Fraction(4, 8)}")
+    print(f"  转小数: float(Fraction(1, 3)) = {float(Fraction(1, 3)):.6f}")
+    print(f"  分子分母: {Fraction(6, 4).numerator}/{Fraction(6, 4).denominator}")
+    print("  [Java 对比] Java 无内置有理数类型，需要自己用分子分母实现")
+    print("  [场景] 概率计算、比例运算，需要逐步精确而无累积误差")
+
+
+def demo_statistics():
+    """statistics：均值/中位数/众数/方差。"""
+    print("\n=== 20. statistics 统计函数 ===")
+    import statistics
+
+    data = [2, 4, 4, 4, 5, 5, 7, 9]
+    print(f"  数据: {data}")
+    print(f"  mean     = {statistics.mean(data)}")
+    print(f"  median   = {statistics.median(data)}")
+    print(f"  mode     = {statistics.mode(data)}      众数")
+    print(f"  stdev    = {statistics.stdev(data):.4f}   样本标准差")
+    print(f"  variance = {statistics.variance(data):.4f}   样本方差")
+    print(f"  quantiles= {statistics.quantiles(data, n=4)}")
+    print(f"  fmean    = {statistics.fmean(data)}   浮点均值，比 mean 快")
+
+    # 大规模数据用 fmean 性能更好
+    import time
+    big = list(range(100_000))
+    t0 = time.perf_counter()
+    statistics.mean(big)
+    t_mean = time.perf_counter() - t0
+    t0 = time.perf_counter()
+    statistics.fmean(big)
+    t_fmean = time.perf_counter() - t0
+    print(f"  10 万数据 mean={t_mean * 1000:.1f}ms  fmean={t_fmean * 1000:.1f}ms")
+    print("  [Java 对比] 无内置统计库，需要 Apache Commons Math 或手写")
+
+
+# =============================================================================
 # 主入口
 # =============================================================================
 def main():
@@ -794,6 +946,15 @@ def main():
     demo_typing_typeddict()
     demo_typing_newtype()
     demo_typing_alias()
+
+    # csv
+    demo_csv_basic()
+    demo_csv_pitfalls()
+
+    # decimal / fractions / statistics
+    demo_decimal()
+    demo_fractions()
+    demo_statistics()
 
     print("\n" + "=" * 70)
     print("所有 demo 运行完成！")

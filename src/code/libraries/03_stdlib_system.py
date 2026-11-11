@@ -1065,6 +1065,133 @@ def demo_pathlib_batch_rename():
 
 
 # =============================================================================
+# 第八部分：hashlib / secrets / base64 / uuid
+# =============================================================================
+# [Java 对比] hashlib   ~ java.security.MessageDigest
+#             secrets   ~ java.security.SecureRandom + UUID.randomUUID
+#             base64    ~ java.util.Base64
+#             uuid      ~ java.util.UUID
+#
+# 这四个模块是工具类开发的刚需，且经常一起出现。
+
+
+def demo_hashlib():
+    """hashlib：摘要算法（对应 MessageDigest）。"""
+    print("\n=== 21. hashlib 摘要算法 ===")
+    import hashlib
+
+    data = "hello world".encode("utf-8")
+
+    # 常用算法
+    print(f"  md5    = {hashlib.md5(data).hexdigest()}")
+    print(f"  sha1   = {hashlib.sha1(data).hexdigest()}")
+    print(f"  sha256 = {hashlib.sha256(data).hexdigest()}")
+    print(f"  sha256(前 16) = {hashlib.sha256(data).hexdigest()[:16]}")
+
+    # 统一入口 + 可用算法
+    h = hashlib.new("sha256")
+    h.update(data)
+    print(f"  hashlib.new('sha256') = {h.hexdigest()}")
+    print(f"  常用算法: {sorted(hashlib.algorithms_guaranteed)[:6]} ...")
+
+    # 流式处理大文件（不要一次性读入内存）
+    print("\n  文件摘要（流式）:")
+    print("    h = hashlib.sha256()")
+    print("    with open(path, 'rb') as f:")
+    print("        for chunk in iter(lambda: f.read(8192), b''):")
+    print("            h.update(chunk)")
+    print("    h.hexdigest()")
+    print("  [Java 对比] MessageDigest.getInstance(\"SHA-256\")")
+
+    # 重要：普通 hash 不能存密码
+    print("\n  [安全] 存密码不能用 sha256！需用 pbkdf2_hmac / bcrypt / argon2")
+    salt = b"random_salt_16b"
+    pwd_hash = hashlib.pbkdf2_hmac("sha256", b"my-password", salt, 200_000)
+    print(f"  pbkdf2_hmac(迭代 20 万次) = {pwd_hash.hex()[:32]}...")
+    print("  [Java 对比] PBKDF2WithHmacSHA256 或 BCryptPasswordEncoder")
+
+
+def demo_secrets():
+    """secrets：密码学安全的随机数（不能用 random）。"""
+    print("\n=== 22. secrets 安全随机 ===")
+    import secrets
+    import string
+    import random
+
+    # 令牌与密码学随机值
+    print(f"  token_hex(16)  = {secrets.token_hex(16)}")
+    print(f"  token_urlsafe   = {secrets.token_urlsafe(16)}")
+    print(f"  token_bytes     = {secrets.token_bytes(8).hex()}")
+    print(f"  randbelow(100)  = {secrets.randbelow(100)}")
+
+    # 生成安全密码
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    password = "".join(secrets.choice(alphabet) for _ in range(16))
+    print(f"  安全密码        = {password}")
+
+    # 常量时间比较（防时序攻击）
+    print(f"  compare_digest  = {secrets.compare_digest('abc', 'abc')}")
+    print("  [要点] secrets.compare_digest 在比较 token/签名时必用")
+
+    print("\n  ⚠️ random 模块【不能】用于安全场景:")
+    print("    random 基于 Mersenne Twister，种子可被推算，适合仿真/游戏")
+    print("    secrets 基于 os.urandom（内核 CSPRNG）")
+    print(f"    random 示例   = {random.random()}")
+    print("  [Java 对比] secrets ~ java.security.SecureRandom（random ~ java.util.Random）")
+
+
+def demo_base64():
+    """base64：编码（不是加密）。"""
+    print("\n=== 23. base64 编码 ===")
+    import base64
+
+    raw = b"hello world\x00\xff"
+    print(f"  原始字节:        {raw!r}")
+    print(f"  b64encode:       {base64.b64encode(raw).decode()}")
+    print(f"  b64decode:       {base64.b64decode(base64.b64encode(raw))!r}")
+
+    # URL 安全变体（替换 +/ 为 -_，去除填充）
+    raw2 = b"\xfb\xff\xbf"
+    print(f"\n  URL 安全变体:")
+    print(f"    b64encode = {base64.b64encode(raw2).decode()}")
+    print(f"    urlsafe   = {base64.urlsafe_b64encode(raw2).decode()}")
+
+    # 常用场景：把二进制塞进 JSON / URL
+    print("\n  [常见用途] 小图片写成 data URI、JWT payload、短信/邮件签名")
+    print("  [误用] base64 是【编码】不是【加密】，任何人都能解码")
+    print("        需要保密请用加密（cryptography 库的 Fernet/AES）")
+    print("  [Java 对比] java.util.Base64.getEncoder() / getUrlEncoder()")
+
+
+def demo_uuid():
+    """uuid：通用唯一标识。"""
+    print("\n=== 24. uuid ===")
+    import uuid
+
+    # uuid4：随机生成（最常用）
+    u4 = uuid.uuid4()
+    print(f"  uuid4()          = {u4}   (随机，最常用)")
+    print(f"  str(u)           = {str(u4)}")
+    print(f"  u.hex            = {u4.hex}")
+    print(f"  u.int            = {str(u4.int)[:20]}...")
+
+    # uuid1：基于时间 + MAC（可能泄露机器信息，不建议）
+    u1 = uuid.uuid1()
+    print(f"\n  uuid1()          = {u1}")
+    print("  ⚠️ uuid1 包含 MAC 地址和时间戳，可能泄露隐私，一般不用")
+
+    # uuid5：基于名字的确定性 UUID（同一名字总是同一 UUID）
+    ns = uuid.NAMESPACE_DNS
+    u5 = uuid.uuid5(ns, "example.com")
+    print(f"\n  uuid5(NS_DNS, 'example.com') = {u5}")
+    print("  同名字再次生成结果相同，可用于确定性 ID")
+
+    # 解析与校验
+    print(f"\n  解析: uuid.UUID('{u4}') == u4 -> {uuid.UUID(str(u4)) == u4}")
+    print("  [Java 对比] java.util.UUID.randomUUID() 对应 uuid4()")
+
+
+# =============================================================================
 # 主入口
 # =============================================================================
 def main():
@@ -1128,6 +1255,12 @@ def main():
     demo_path_expand()
     demo_os_symlink()
     demo_pathlib_batch_rename()
+
+    # hashlib / secrets / base64 / uuid
+    demo_hashlib()
+    demo_secrets()
+    demo_base64()
+    demo_uuid()
 
     print("\n" + "=" * 70)
     print("所有 demo 运行完成！")

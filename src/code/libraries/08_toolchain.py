@@ -180,6 +180,107 @@ class foo:
 # 字符串拼接、单行多导入、命名不规范（foo/Bar）、缺少空格。
 
 
+def demo_unittest_mock():
+    """unittest.mock：对照 Mockito 的完整映射。"""
+    print("\n=== unittest.mock（对照 Mockito）===")
+    from unittest.mock import Mock, MagicMock, patch, call
+
+    # ---- 1. 基本 Mock：Recorded invocations ----
+    print("  1. 基本用法（验证调用）")
+    svc = Mock()
+    svc.fetch("user-1")
+    svc.fetch("user-2")
+    print(f"     调用次数: {svc.fetch.call_count}")
+    print(f"     调用参数: {svc.fetch.call_args_list}")
+    print(f"     最后一次: {svc.fetch.call_args}")
+    svc.fetch.assert_called_with("user-2")     # 对应 verify(svc).fetch("user-2")
+    print("     [Mockito] mock(Svc.class) + verify(svc).fetch(\"user-2\")")
+
+    # ---- 2. 返回值：return_value / side_effect ----
+    print("\n  2. 返回值配置")
+    repo = Mock()
+    repo.find.return_value = {"id": 1}
+    print(f"     return_value:    {repo.find(1)}")
+
+    repo.find.side_effect = [{"id": 2}, {"id": 3}]   # 依次返回
+    print(f"     side_effect 列表: {repo.find(99)}, {repo.find(99)}")
+
+    def compute(x):
+        return x * 10
+    repo.find.side_effect = compute                       # 用函数代替
+    print(f"     side_effect 函数: {repo.find(5)}")
+
+    repo.find.side_effect = KeyError("not found")        # 抛异常
+    try:
+        repo.find(1)
+    except KeyError as exc:
+        print(f"     side_effect 异常: KeyError({exc})")
+    print("     [Mockito] when(repo.find(any())).thenReturn(...) / thenThrow(...)")
+
+    # ---- 3. MagicMock：支持魔法方法 ----
+    print("\n  3. MagicMock vs Mock")
+    m = Mock()
+    try:
+        len(m)
+    except TypeError:
+        print("     Mock:      不支持 len()")
+    mm = MagicMock()
+    mm.__len__.return_value = 3
+    print(f"     MagicMock: len() = {len(mm)}，还能用 in / with / 迭代")
+    print("     [要点] 大多数场景直接用 MagicMock，很少真的需要 Mock")
+
+    # ---- 4. patch：替换任意属性 ----
+    print("\n  4. patch 上下文管理器")
+    import os
+
+    with patch.dict(os.environ, {"APP_ENV": "prod"}):
+        print(f"     patch.dict 后 APP_ENV = {os.environ['APP_ENV']}")
+    print(f"     退出后恢复为: {os.environ.get('APP_ENV', '<未设置>')}")
+    print("     [Mockito] 相当于 @Mock + @InjectMocks，但 patch 能打任意属性")
+
+    # 装饰器形式
+    print("     @patch('module.func') 装饰器形式用于整函数")
+
+    # ---- 5. spec：类型安全的 Mock ----
+    print("\n  5. spec / autospec（类型安全）")
+
+    class RealService:
+        def fetch(self, user_id): ...
+        def save(self, data): ...
+
+    strict = Mock(spec=RealService)
+    try:
+        strict.nonexistent_method()      # 真实类没有这个方法
+    except AttributeError as exc:
+        print(f"     spec 拦截拼写错误: {exc}")
+    print("     [Mockito] mock(Svc.class) 默认就是类型安全的；"
+          "Python 必须显式传 spec=")
+    print("     [要点] 不加 spec 的 Mock 会接受任何调用，拼写错也照样通过")
+
+    # ---- 6. 对照表 ----
+    print("\n  6. Mockito → unittest.mock 对照")
+    rows = [
+        ("Mockito", "unittest.mock"),
+        ("mock(Svc.class)", "Mock(spec=Svc)"),
+        ("when(x).thenReturn(v)", "x.return_value = v"),
+        ("thenThrow(e)", "side_effect = e"),
+        ("thenReturn(a, b)", "side_effect = [a, b]"),
+        ("verify(x).m(1)", "x.m.assert_called_with(1)"),
+        ("verify(x, times(2)).m()", "assert x.m.call_count == 2"),
+        ("any()", "ANY / mock.ANY"),
+        ("ArgumentCaptor", "x.m.call_args_list"),
+        ("@Mock / @InjectMocks", "patch(\"module.attr\") / patch.dict"),
+    ]
+    widths = [max(len(r[i]) for r in rows) for i in range(2)]
+    for idx, row in enumerate(rows):
+        print("     " + " | ".join(row[i].ljust(widths[i]) for i in range(2)))
+        if idx == 0:
+            print("     " + "-+-".join("-" * w for w in widths))
+
+    print("  [要点] pytest 里优先用 monkeypatch（更轻），"
+          "需要验证调用/复杂返回值时用 unittest.mock")
+
+
 def demo_ruff():
     """ruff check / ruff format 演示（无网络，仅在本地临时文件上跑）。"""
     print("\n=== 2. ruff（lint + format）===")
@@ -425,6 +526,7 @@ def main():
     print("=" * 60)
 
     demo_pytest()
+    demo_unittest_mock()
     demo_ruff()
     demo_mypy()
     demo_project_config()

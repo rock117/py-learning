@@ -319,10 +319,10 @@ shutil.rmtree(tree)           # 递归删除；无对应 Java API，需手写递
 > [chmod 演示](../code/libraries/03_stdlib_system.py#L984-L1008) ·
 > [路径展开演示](../code/libraries/03_stdlib_system.py#L1011-L1023) ·
 > [符号链接演示](../code/libraries/03_stdlib_system.py#L1026-L1046) ·
-> [批量重命名演示](../code/libraries/03_stdlib_system.py#L1049-L1069)
+> [批量重命名演示](../code/libraries/03_stdlib_system.py#L1049-L1075)
 
 ```python
-{{#include ../code/libraries/03_stdlib_system.py:1049:1069}}
+{{#include ../code/libraries/03_stdlib_system.py:1049:1075}}
 ```
 
 ```python
@@ -342,6 +342,110 @@ for f in tmp.glob("img_*.png"):               # 批量重命名：目标名不�
 
 > ⚠️ Windows 上 `os.chmod` **只支持切换只读位**，传入 `0o644` 基本无效；创建符号链接需要管理员权限或
 > 开发者模式，否则抛 `OSError`——所以跨平台脚本必须 `try/except OSError` 兜底，而不是「代码写得不够稳」。
+
+## hashlib / secrets / base64 / uuid：敏列与标识
+
+四个模块在工具类开发中经常一起出现：生成 token、算文件签名、做 ID。
+
+| 模块 | 用途 | Java 对应 |
+|------|------|-----------|
+| `hashlib` | 摘要算法（SHA/MD5） | `MessageDigest` |
+| `secrets` | 密码学安全随机 | `SecureRandom` |
+| `base64` | 二进制转文本 | `java.util.Base64` |
+| `uuid` | 唯一标识 | `java.util.UUID` |
+
+### `hashlib`：摘要与密码
+
+> [hashlib 示例](../code/libraries/03_stdlib_system.py#L1078-L1111)
+
+```python
+{{#include ../code/libraries/03_stdlib_system.py:1078:1111}}
+```
+
+```python
+hashlib.sha256(b"hello world").hexdigest()
+# b94d27b9934d3e08...
+```
+
+**大文件要流式算**，不要 `f.read()` 一次性读入内存：
+
+```python
+h = hashlib.sha256()
+with open(path, "rb") as f:
+    for chunk in iter(lambda: f.read(8192), b""):
+        h.update(chunk)
+h.hexdigest()
+```
+
+> ⚠️ **不要用 `sha256` 存密码。** 普通摘要算法太快，可被暴力破解。正确做法是 `pbkdf2_hmac`（带盐 + 大幅迭代）或 `bcrypt` / `argon2`：
+>
+> ```python
+> hashlib.pbkdf2_hmac("sha256", password, salt, 200_000)
+> ```
+>
+> 对应 Java 的 `PBKDF2WithHmacSHA256` 或 Spring Security 的 `BCryptPasswordEncoder`。
+
+### `secrets`：安全随机（不能用 `random`）
+
+> [secrets 示例](../code/libraries/03_stdlib_system.py#L1114-L1140)
+
+```python
+{{#include ../code/libraries/03_stdlib_system.py:1114:1140}}
+```
+
+```python
+secrets.token_hex(16)          # 32 位十六进制串
+secrets.token_urlsafe(16)      # URL 安全，适合放进链接
+secrets.choice(alphabet)       # 安全选字符
+secrets.compare_digest(a, b)   # 常量时间比较
+```
+
+> ⚠️ **`random` 模块绝对不能用于安全场景。** 它基于 Mersenne Twister，理论状态下种子而可被推算；`secrets` 基于 `os.urandom()`（内核 CSPRNG）。
+>
+> | 场景 | 用 | 不用 |
+> |------|-----|------|
+> | 密码重置 token | `secrets.token_urlsafe` | `random` |
+> | 仿真 / 游戏 / 抽奖 | `random` | `secrets`（没必要） |
+> | 比较 token | `secrets.compare_digest` | `==`（有时序攻击风险） |
+
+### `base64`：编码，不是加密
+
+> [base64 示例](../code/libraries/03_stdlib_system.py#L1143-L1163)
+
+```python
+{{#include ../code/libraries/03_stdlib_system.py:1143:1163}}
+```
+
+```python
+base64.b64encode(b"hello")           # b'aGVsbG8='
+base64.urlsafe_b64encode(b"\xfb\xff")  # 把 +/ 换成 -_
+```
+
+> ⚠️ **base64 是编码不是加密。** 任何人可以解码。它只解决「二进制没法塞进 JSON/URL」的问题。需要保密请用 `cryptography` 库的 Fernet/AES。
+>
+> 典型用途：小图片写 data URI、JWT payload、短信/邮件签名。
+
+### `uuid`：唯一标识
+
+> [uuid 示例](../code/libraries/03_stdlib_system.py#L1166-L1196)
+
+```python
+{{#include ../code/libraries/03_stdlib_system.py:1166:1196}}
+```
+
+| 版本 | 特点 | 何时用 |
+|------|------|---------|
+| `uuid4()` | 纯随机 | **默认选它** |
+| `uuid1()` | 时间 + MAC 地址 | ❌ 会泄露机器信息 |
+| `uuid5(ns, name)` | 基于名字，确定性 | 相同名字总能得到同一 ID |
+
+```python
+uuid.uuid4()                              # 87fc0a46-88f6-4f8e-...
+uuid.UUID(str_uuid) == original           # 解析，非字符串相等
+uuid.uuid5(uuid.NAMESPACE_DNS, "a.com")   # 确定性
+```
+
+> [Java 对比] `UUID.randomUUID()` 直接对应 `uuid4()`。Java 没有 `uuid5` 的标准等价物。
 
 ## 小结
 

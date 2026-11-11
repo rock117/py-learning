@@ -99,11 +99,77 @@ async with ConnA() as a, ConnB() as b:
 这是 aiohttp 的推荐用法：一个 `ClientSession` 内发多个请求，
 复用 TCP 连接和连接池，退出时自动关闭。
 
+复用 TCP 连接和连接池，退出时自动关闭。
+
+## `contextvars`：异步世界的 ThreadLocal
+
+这是 `async` 章节里最容易出问题的地方，也是与 Java 差异最大的一点。
+
+> [contextvars 示例](../code/async/05_async_context.py#L216-L252)
+
+```python
+{{#include ../code/async/05_async_context.py:216:252}}
+```
+
+### 为什么 ThreadLocal 在 asyncio 里失效
+
+Java 里用 `ThreadLocal` 或 MDC 传 traceId，前提是“**一个线程处理一个请求**”。但 asyncio 是**单线程跑成百上千个协程**，所有协程共享同一个线程，`ThreadLocal` 就退化成了全局共享：
+
+```python
+tl = threading.local()
+
+async def work(name):
+    tl.name = name
+    await asyncio.sleep(0.01)    # 让出控制权，切到其他协程
+    return tl.name
+
+await asyncio.gather(work("A"), work("B"), work("C"))
+# ['C', 'C', 'C']   全是最后一个写入的
+```
+
+### `ContextVar` 的用法
+
+```python
+import contextvars
+
+_request_id = contextvars.ContextVar("request_id", default="-")
+
+async def handle(req_id):
+    token = _request_id.set(req_id)      # 写入，带回滚令牌
+    try:
+        await downstream()
+    finally:
+        _request_id.reset(token)          # 还原，避免污染调用方
+```
+
+每个协程有自己独立上下文副本，`gather` 并发执行时互不干扰。
+
+### 三个要点
+
+| 要点 | 说明 |
+|------|------|
+| **创建时给 `default=`** | 否则未 set 时 `get()` 抛 `LookupError` |
+| **`set()` 返回 `token`** | 用完必须 `reset(token)`，否则污染外层 |
+| **`copy_context()` 可显式派发** | `asyncio.to_thread` 会自动复制，`run_in_executor` 不会 |
+
+> ⚠️ **MDC 在 async 代码里不要用。** Python 的 `logging` 不会自动读 `ContextVar`，需要在 `Formatter` 里手动 `_request_id.get()`，或者用 `structlog` 这类支持上下文绑定的库。
+
+> [Java 对比]
+> | Java | Python async |
+> |------|--------------|
+> | `ThreadLocal` | ❌ 失效（单线程多协程） |
+> | `MDC.put("traceId", id)` | ❌ 同样失效 |
+> | — | ✅ `ContextVar`（协程级隔离） |
+> | — | ✅ `asyncio.to_thread` 自动复制上下文 |
+
+> [要点] 在 Web 框架里，中间件设置 `ContextVar`，下游业务和日志库读取它——这就是 FastAPI / Starlette 传递请求上下文的方式。
+
 ## 小结
 
 - `async with` 调用 `__aenter__` / `__aexit__`，两者都可 `await`
 - `@asynccontextmanager + yield` 是最简洁的写法
 - 适合资源管理：连接、会话、锁、文件句柄
 - 异常时 `__aexit__` 仍会被调用，保证资源释放
+- **`ThreadLocal`/MDC 在 asyncio 下失效**，用 `ContextVar`（协程级隔离）
 
 > 📁 [查看完整代码](../code/async/05_async_context.py)

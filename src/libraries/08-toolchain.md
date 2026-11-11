@@ -91,14 +91,71 @@ def test_env_override(monkeypatch):
     assert current_env() == "prod"
 ```
 
-`monkeypatch` 提供 `setenv` / `setattr` / `chdir` / `syspath_prepend`，测试结束**自动还原**。需要 `verify()` / `ArgumentCaptor` 这类 Mockito 能力时再用 `unittest.mock` 或 `pytest-mock`。
+`monkeypatch` 提供 `setenv` / `setattr` / `chdir` / `syspath_prepend`，测试结束**自动还原**。
+
+### unittest.mock：对照 Mockito
+
+> [unittest.mock 示例](../code/libraries/08_toolchain.py#L183-L281)
+
+```python
+{{#include ../code/libraries/08_toolchain.py:183:281}}
+```
+
+当需要**验证调用**（`verify`）、**控制返回值**（`thenReturn`）或 **captor** 时，用 `unittest.mock`。完整的 Mockito 映射：
+
+| Mockito | unittest.mock |
+|---------|---------------|
+| `mock(Svc.class)` | `Mock(spec=Svc)` |
+| `when(x).thenReturn(v)` | `x.return_value = v` |
+| `thenThrow(e)` | `x.side_effect = e` |
+| `thenReturn(a, b)` | `x.side_effect = [a, b]` |
+| `thenAnswer(f)` | `x.side_effect = f`（用函数） |
+| `verify(x).m(1)` | `x.m.assert_called_with(1)` |
+| `verify(x, times(2)).m()` | `assert x.m.call_count == 2` |
+| `any()` | `mock.ANY` |
+| `ArgumentCaptor` | `x.m.call_args_list` |
+| `@Mock` / `@InjectMocks` | `@patch("module.attr")` / `patch.dict` |
+
+三个关键差异：
+
+**1. `Mock` vs `MagicMock`**
+
+| | `Mock` | `MagicMock` |
+|---|---|---|
+| `len(m)` | ❌ `TypeError` | ✅ 可配置 |
+| `iter(m)` / `with m` / `m[0]` | ❌ | ✅ |
+| 适用场景 | 极少 | **默认选它** |
+
+**2. 必须显式传 `spec=` 才有类型安全**
+
+```python
+strict = Mock(spec=RealService)
+strict.nonexistent_method()      # ❌ AttributeError
+
+loose = Mock()
+loose.nonexistent_method()       # ✅ 静默通过，拼写错也不报
+```
+
+> ⚠️ Mockito 的 `mock(Svc.class)` **默认就是类型安全的**，而 Python 的 `Mock()` 接受任何调用。忘传 `spec=` 会让测试形同虚设——拼错方法名照样通过。
+
+**3. `side_effect` 一个参数干三件事**
+
+```python
+repo.find.side_effect = [{"id": 2}, {"id": 3}]   # 依次返回
+repo.find.side_effect = lambda x: x * 10          # 用函数计算
+repo.find.side_effect = KeyError("not found")     # 抛异常
+```
+
+> [要点] 优先级：能用 `monkeypatch` 就用（更轻）；需要验证调用或复杂返回值时上 `unittest.mock`。
+
+> [Java 对比] 与 JUnit 不同，pytest 的 Mock **不需要任何框架注解**，纯标准库；`pytest-mock` 只是把 `patch` 包装成了 fixture。
 
 ## ruff：lint + 格式化
 
-> [ruff 示例](../code/libraries/08_toolchain.py#L183-L218)
+> [ruff 示例](../code/libraries/08_toolchain.py#L183-L281)
 
 ```python
-{{#include ../code/libraries/08_toolchain.py:183:218}}
+{{#include ../code/libraries/08_toolchain.py:183:281}}
 ```
 
 ruff 用一个 Rust 二进制替代了**一整套**工具：
@@ -122,10 +179,10 @@ ruff format .             # 格式化（兼容 black 风格）
 
 ## mypy：静态类型检查
 
-> [mypy 示例](../code/libraries/08_toolchain.py#L248-L274)
+> [mypy 示例](../code/libraries/08_toolchain.py#L183-L281)
 
 ```python
-{{#include ../code/libraries/08_toolchain.py:248:274}}
+{{#include ../code/libraries/08_toolchain.py:183:281}}
 ```
 
 ```python
@@ -152,10 +209,10 @@ def load_config(repo: Repo, key: str) -> int:
 
 ### 一个文件统一所有配置
 
-> [pyproject.toml 示例](../code/libraries/08_toolchain.py#L314-L344)
+> [pyproject.toml 示例](../code/libraries/08_toolchain.py#L284-L319)
 
 ```python
-{{#include ../code/libraries/08_toolchain.py:314:344}}
+{{#include ../code/libraries/08_toolchain.py:284:319}}
 ```
 
 ```toml
@@ -192,10 +249,10 @@ testpaths = ["tests"]
 
 ### uv：秒级依赖管理
 
-> [工具链速查表](../code/libraries/08_toolchain.py#L400-L418)
+> [工具链速查表](../code/libraries/08_toolchain.py#L377-L412)
 
 ```python
-{{#include ../code/libraries/08_toolchain.py:400:418}}
+{{#include ../code/libraries/08_toolchain.py:377:412}}
 ```
 
 | 操作 | uv | pip + venv | Maven / Gradle |
@@ -211,10 +268,10 @@ testpaths = ["tests"]
 
 ## pre-commit：提交前钩子
 
-> [pre-commit 配置示例](../code/libraries/08_toolchain.py#L385-L398)
+> [pre-commit 配置示例](../code/libraries/08_toolchain.py#L377-L412)
 
 ```python
-{{#include ../code/libraries/08_toolchain.py:385:398}}
+{{#include ../code/libraries/08_toolchain.py:377:412}}
 ```
 
 ```yaml
@@ -240,10 +297,10 @@ pre-commit run --all-files    # 全量跑一次
 
 ## 选型速查
 
-> [速查表](../code/libraries/08_toolchain.py#L421-L440)
+> [速查表](../code/libraries/08_toolchain.py#L415-L445)
 
 ```python
-{{#include ../code/libraries/08_toolchain.py:421:440}}
+{{#include ../code/libraries/08_toolchain.py:415:445}}
 ```
 
 | 需求 | 首选 | 备选 | Java 对应 |
