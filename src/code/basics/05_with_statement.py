@@ -281,9 +281,104 @@ def demo_implement_decorator():
 # 6. __exit__ 吞异常
 # =============================================================================
 
+def demo_contextmanager_flow():
+    """@contextmanager 的执行流程：yield 把函数一分为二。"""
+    print("\n=== 7. @contextmanager 的执行流程 ===")
+    from contextlib import contextmanager
+
+    @contextmanager
+    def traced(name):
+        print(f"    ① 进 with 前：开始执行函数体（yield 之前）")
+        print(f"    ② 相当于 __enter__")
+        try:
+            yield f"<{name}>"          # ③ 暂停，控制权交回 with 块
+        finally:
+            print(f"    ④ 回到 yield 之后（相当于 __exit__）")
+
+    print("  with traced('res') as x:")
+    with traced("res") as x:
+        print(f"    ③ with 块体执行，x = {x}")
+
+    print("\n  对比 __enter__ / __exit__ 的映射：")
+    rows = [
+        ("类写法", "@contextmanager 写法"),
+        ("__enter__ 的代码", "yield 【之前】的代码"),
+        ("__enter__ 的返回值", "yield 【的值】"),
+        ("__exit__ 的代码", "yield 【之后】的代码"),
+    ]
+    widths = [max(len(r[i]) for r in rows) for i in range(2)]
+    for idx, row in enumerate(rows):
+        print("    " + " | ".join(row[i].ljust(widths[i]) for i in range(2)))
+        if idx == 0:
+            print("    " + "-+-".join("-" * w for w in widths))
+
+    print("\n  底层：@contextmanager 把一个生成器包装成 _GeneratorContextManager")
+    print("        __enter__ 调 next(gen)，__exit__ 调 gen.throw() / gen.close()")
+    mgr = traced("demo")
+    print(f"  实际类型: {type(mgr).__name__}")
+
+
+# =============================================================================
+# 7. 装饰器写法下的异常处理
+# =============================================================================
+
+def demo_contextmanager_exceptions():
+    """@contextmanager 中吞掉异常 / 处理后重抛。"""
+    print("\n=== 8. @contextmanager 里的异常处理 ===")
+    from contextlib import contextmanager
+
+    # ① 吞掉（不重新抛）
+    @contextmanager
+    def swallow_value_error():
+        try:
+            yield
+        except ValueError as exc:
+            print(f"    [吞掉] ValueError: {exc}")
+        # 不重新抛 = 异常消失
+
+    with swallow_value_error():
+        raise ValueError("看不见我")
+    print("    程序继续执行")
+
+    # ② 处理后重新抛出（推荐）
+    @contextmanager
+    def log_and_reraise():
+        try:
+            yield
+        except Exception as exc:
+            print(f"    [记录] {type(exc).__name__}: {exc}")
+            raise                       # 关键：一定要重抛
+
+    try:
+        with log_and_reraise():
+            raise RuntimeError("要传出去")
+    except RuntimeError:
+        print("    异常已向上传播，调用方能感知")
+
+    # ③ 只拦截特定类型，其他照常传播
+    @contextmanager
+    def only_ignore_keyerror():
+        try:
+            yield
+        except KeyError:
+            print("    [忽略] KeyError")
+
+    with only_ignore_keyerror():
+        {}["missing"]
+
+    try:
+        with only_ignore_keyerror():
+            raise TypeError("不归我管")
+    except TypeError:
+        print("    TypeError 未被拦截，正常传播")
+
+    print("\n  [要点] except 块里不写 raise 就等于吞异常，务必想清楚")
+    print("  [对比] 类写法的等价物：__exit__ 返回 True（吞）vs False/None（抛）")
+
+
 def demo_suppress_exception():
     """__exit__ 返回 True 会静默吞掉异常——Python 独有。"""
-    print("\n=== 7. __exit__ 吞异常 ===")
+    print("\n=== 9. __exit__ 吞异常（类写法）===")
 
     class Swallow:
         def __enter__(self):
@@ -319,7 +414,7 @@ def demo_suppress_exception():
 
 def demo_multiple():
     """多资源写法与退出顺序。"""
-    print("\n=== 8. 多资源与嵌套 ===")
+    print("\n=== 10. 多资源与嵌套 ===")
     import tempfile
     from pathlib import Path
 
@@ -363,7 +458,7 @@ def demo_multiple():
 
 def demo_pitfalls():
     """高频错误。"""
-    print("\n=== 9. 常见陷阱 ===")
+    print("\n=== 11. 常见陷阱 ===")
 
     print("  坑 1  __exit__ 的异常参数顺序容易写错")
     print("        正确: def __exit__(self, exc_type, exc_val, exc_tb)")
@@ -411,7 +506,7 @@ def demo_pitfalls():
 
 
 def print_java_mapping():
-    print("\n=== 10. Java 对照总表 ===")
+    print("\n=== 12. Java 对照总表 ===")
     rows = [
         ("场景", "Python", "Java"),
         ("资源管理", "with obj as x:", "try (var x = obj)"),
@@ -442,6 +537,8 @@ def main():
     demo_decimal_context()
     demo_implement_class()
     demo_implement_decorator()
+    demo_contextmanager_flow()
+    demo_contextmanager_exceptions()
     demo_suppress_exception()
     demo_multiple()
     demo_pitfalls()

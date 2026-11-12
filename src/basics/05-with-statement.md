@@ -162,16 +162,62 @@ def resource(name):
 - `yield` 的值 → `as` 后面的变量
 - **必须包在 `try/finally` 里**，否则块内抛异常时清理逻辑不会执行
 
+## `@contextmanager` 的执行流程
+
+理解它的关键是：**`yield` 把函数一分为二**。
+
+> [执行流程演示](../code/basics/05_with_statement.py#L284-L323)
+
+```python
+{{#include ../code/basics/05_with_statement.py:284:323}}
+```
+
+```python
+@contextmanager
+def traced(name):
+    print("① 进 with 前：开始执行函数体")
+    print("② 相当于 __enter__")
+    try:
+        yield f"<{name}>"          # ③ 暂停，控制权交回 with 块，值绑给 as
+    finally:
+        print("④ 回到 yield 之后（相当于 __exit__）")
+
+with traced("res") as x:
+    print(f"③ with 块体执行，x = {x}")
+```
+
+实际输出顺序：
+
+```
+① 进 with 前：开始执行函数体（yield 之前）
+② 相当于 __enter__
+③ with 块体执行，x = <res>
+④ 回到 yield 之后（相当于 __exit__）
+```
+
+与类写法的映射关系：
+
+| 类写法 | `@contextmanager` 写法 |
+|--------|------------------------|
+| `__enter__` 的代码 | `yield` **之前**的代码 |
+| `__enter__` 的返回值 | `yield` **的值** |
+| `__exit__` 的代码 | `yield` **之后**的代码 |
+
+> [要点] 底层上，`@contextmanager` 把生成器包装成了 `_GeneratorContextManager`：
+> `__enter__` 调 `next(gen)`，`__exit__` 调 `gen.throw()` / `gen.close()`。
+> 这也解释了为什么 **`yield` 处是异常注入点**——异常是从 `yield` 那一行抛出来的，所以只有 `try/finally` 能保证清理。
+
 > [要点] 99% 的场景用 `@contextmanager` 就够了，只有需要重复进入同一对象时才用类。
 
 ## `__exit__` 返回 `True` 会吞掉异常
 
 这是 Python 独有的能力，Java 的 try-with-resources 做不到。
 
-> [吞异常演示](../code/basics/05_with_statement.py#L284-L318)
+> [吞异常演示](../code/basics/05_with_statement.py#L284-L323)
 
 ```python
-{{#include ../code/basics/05_with_statement.py:284:318}}
+{{#include ../code/basics/05_with_statement.py:284:323}}
+```
 ```
 
 ```python
@@ -194,12 +240,77 @@ with suppress(FileNotFoundError):
 
 > ⚠️ **不要滥用。** 吞掉异常会让 bug 难以定位。库作者尤其不要默认吞异常；即使要吞，也应在文档里写清楚只吞哪一类。
 
-## 多资源与退出顺序
+### `@contextmanager` 写法下的异常处理
 
-> [多资源示例](../code/basics/05_with_statement.py#L320-L362)
+装饰器写法没有 `__exit__` 返回值可用，**是否吞掉异常取决于你是否重新 `raise`**。
+
+> [装饰器异常处理演示](../code/basics/05_with_statement.py#L325-L376)
 
 ```python
-{{#include ../code/basics/05_with_statement.py:320:362}}
+{{#include ../code/basics/05_with_statement.py:325:376}}
+```
+
+**① 吞掉（不重新抛）**
+
+```python
+@contextmanager
+def swallow_value_error():
+    try:
+        yield
+    except ValueError as exc:
+        print(f"[吞掉] {exc}")
+    # 不重新抛 = 异常消失
+```
+
+**② 处理后重新抛出（推荐）**
+
+```python
+@contextmanager
+def log_and_reraise():
+    try:
+        yield
+    except Exception as exc:
+        logger.exception("出错了")
+        raise                  # ✅ 关键：一定要重抛
+```
+
+**③ 只拦截特定类型**
+
+```python
+@contextmanager
+def only_ignore_keyerror():
+    try:
+        yield
+    except KeyError:
+        pass                  # 只忽略 KeyError，其他照常传播
+```
+
+实际运行结果：
+
+```
+[吞掉] ValueError: 看不见我
+程序继续执行
+[记录] RuntimeError: 要传出去
+异常已向上传播，调用方能感知
+[忽略] KeyError
+TypeError 未被拦截，正常传播
+```
+
+| 需求 | 类写法 | 装饰器写法 |
+|------|--------|-----------|
+| 吞异常 | `__exit__` 返回 `True` | `except` 块里不 `raise` |
+| 传播异常 | `__exit__` 返回 `False`/`None` | `except` 块里 `raise` |
+| 只吞特定类型 | `except_type in (...)` 判断后返回 `True` | `except SomeError:` |
+
+> ⚠️ `except` 块里**不写 `raise` 就等于吞异常**。写的时候务必想清楚：这里是真的可以忽略，还是只是忘了重抛？
+
+## 多资源与退出顺序
+
+> [多资源示例](../code/basics/05_with_statement.py#L284-L323)
+
+```python
+{{#include ../code/basics/05_with_statement.py:284:323}}
+```
 ```
 
 ```python
@@ -223,10 +334,11 @@ enter A → enter B → enter C → 块内 → exit C → exit B → exit A
 
 ## 常见陷阱
 
-> [完整陷阱演示](../code/basics/05_with_statement.py#L364-L410)
+> [完整陷阱演示](../code/basics/05_with_statement.py#L325-L376)
 
 ```python
-{{#include ../code/basics/05_with_statement.py:364:410}}
+{{#include ../code/basics/05_with_statement.py:325:376}}
+```
 ```
 
 ### 坑 1：`@contextmanager` 里忘了 `try/finally`
@@ -289,10 +401,11 @@ with open(p) as f:     # 需要对象时务必 as
 
 ## Java 对照总表
 
-> [完整对照代码](../code/basics/05_with_statement.py#L413-L430)
+> [完整对照代码](../code/basics/05_with_statement.py#L379-L413)
 
 ```python
-{{#include ../code/basics/05_with_statement.py:413:430}}
+{{#include ../code/basics/05_with_statement.py:379:413}}
+```
 ```
 
 | 场景 | Python | Java |
