@@ -20,6 +20,8 @@
 | [04 - 迭代协议、for-else 与切片](04-iteration-protocol.md) | `__iter__` / `__next__`、`for...else`、切片协议 | `Iterable` / `Iterator`、`subList` |
 | [05 - with 语句与上下文管理器](05-with-statement.md) | `__enter__`/`__exit__`、`@contextmanager`、吞异常、LIFO | try-with-resources |
 | [06 - 容易误解的关键字](06-keywords.md) | `lambda`/`global`/`nonlocal`/`yield`/`del`/`assert`/`is`/三元 | 逐项对照与陷阱 |
+| [07 - 模块与包机制](07-modules-and-packages.md) | `sys.path`、相对/绝对导入、`python -m`、`importlib` | classpath、`Class.forName` |
+| [08 - 装饰器入门](08-decorators.md) | 函数即对象、闭包、`@` 语法糖、三层嵌套、类装饰器 | AOP 切面 |
 
 ## 为什么单独成章
 
@@ -68,5 +70,7 @@ s[100]       # 单索引越界才抛 IndexError
 4. **迭代协议** —— 理解生成器、异步迭代器的底层机制
 5. **`with` 语句** —— 资源管理的基石，项目里到处在用
 6. **容易误解的关键字** —— `is` vs `==`、`assert` 在 `-O` 下失效等细节
+7. **模块与包机制** —— 导入系统，理解项目结构的前提
+8. **装饰器入门** —— `@property`/`@pytest.fixture`/`@app.route` 的底层机制
 
 > 📁 [本部分代码目录](../code/basics/)

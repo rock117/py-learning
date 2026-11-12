@@ -1,11 +1,16 @@
 # 装饰器进阶
 
-Python 装饰器是语言级特性，本质是高阶函数（接收函数返回函数）。
-`@decorator` 语法是 `func = decorator(func)` 的语法糖。Java 没有直接对应，类似功能靠注解 + AOP 实现。
+> 本章假设你已会写基础装饰器。如果对 `@deco` 与 `f = deco(f)` 的等价关系、
+> 闭包为什么是前提、`wrapper` 为什么要写 `*args, **kwargs` 还有疑问，
+> 请先看[装饰器入门](../basics/08-decorators.md)。
 
-## 核心概念
+本章专注三件事：
 
-### 装饰器本质
+1. 叠加顺序（多个装饰器同时作用时谁先谁后）
+2. `functools` 提供的现成装饰器（`lru_cache` / `singledispatch` / `cached_property`）
+3. 真实项目里的装饰器写法
+
+## 装饰器本质再确认
 
 ```python
 @simple_logger
@@ -28,7 +33,11 @@ def add(a, b):
 | `singledispatch` | 方法重载 | 按类型运行时分派 |
 | `cached_property` | `@Cacheable` / lazy init getter | 首次计算并缓存 |
 
-## 基础装饰器
+## 基础装饰器与带参数装饰器
+
+这两种形态已在[入门章](../basics/08-decorators.md)详细拆解，这里只列代码备查。
+
+### 基础装饰器
 
 最简单的装饰器：打印调用日志，类似 Spring AOP 的 `@Before` 切面：
 
@@ -38,9 +47,9 @@ def add(a, b):
 {{#include ../code/advanced/03_decorators.py:28:41}}
 ```
 
-## 带参数装饰器（三层嵌套）
+### 带参数装饰器（三层嵌套）
 
-带参数的装饰器需要三层嵌套：最外层接收参数，中间层接收函数，最内层是 wrapper：
+最外层接收参数，中间层接收函数，最内层是 wrapper：
 
 > [带参数装饰器 repeat](../code/advanced/03_decorators.py#L56-L77)
 
