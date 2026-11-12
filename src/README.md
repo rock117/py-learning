@@ -55,3 +55,6 @@ python src/code/advanced/01_type_system.py
 - [第零部分：语言基础补遗](./basics/README.md)
 - [第一部分：异步编程 async](./async/README.md)
 - [第二部分：高级特性](./advanced/README.md)
+- [第三部分：实战经验](./practice/README.md)
+- [第四部分：常用类库](./libraries/README.md)
+- [第五部分：工程化实践](./engineering/README.md)

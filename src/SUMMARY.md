@@ -11,6 +11,7 @@
 - [迭代协议、for-else 与切片](./basics/04-iteration-protocol.md)
 - [with 语句与上下文管理器](./basics/05-with-statement.md)
 - [容易误解的关键字](./basics/06-keywords.md)
+- [模块与包机制](./basics/07-modules-and-packages.md)
 
 # 第一部分：异步编程
 
@@ -60,3 +61,10 @@
 - [数据科学](./libraries/06-data-science.md)
 - [数据库 ORM](./libraries/07-database.md)
 - [工具链](./libraries/08-toolchain.md)
+
+# 第五部分：工程化实践
+
+- [概览](./engineering/README.md)
+- [工业级项目结构](./engineering/01-project-layout.md)
+- [构建与发布](./engineering/02-build-and-release.md)
+- [CI/CD 与运行工作流](./engineering/03-ci-and-workflow.md)
