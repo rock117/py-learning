@@ -235,7 +235,7 @@ async def demo_to_thread_caveats():
     print("    1. 受线程数限制，不是真正的无限并发")
     print("    2. GIL 依然存在：CPU 密集任务用 to_thread 不会变快")
     print("    3. CPU 密集应用 ProcessPoolExecutor")
-    print("    4. to_thread 不传递 ContextVar（需 copy_context）")
+    print("    4. run_in_executor 不传递 ContextVar，to_thread 会（见下一节）")
     print("    5. 线程里的异常会原样抛回协程")
 
     print("  [Java 对比]")
@@ -244,10 +244,106 @@ async def demo_to_thread_caveats():
 
 
 # ---------------------------------------------------------------------------
+# 6.1 优化：ContextVar 传递差异
+# ---------------------------------------------------------------------------
+async def demo_contextvar_in_thread():
+    """to_thread 与 run_in_executor 对 ContextVar 的处理差异。"""
+    print("\n=== 7. ContextVar 在两种写法下的差异 ===")
+    import contextvars
+
+    request_id = contextvars.ContextVar("request_id", default="<unset>")
+
+    def read_cv() -> str:
+        return request_id.get()
+
+    request_id.set("req-123")
+
+    via_to_thread = await asyncio.to_thread(read_cv)
+    loop = asyncio.get_running_loop()
+    via_executor = await loop.run_in_executor(None, read_cv)
+
+    print(f"  to_thread       读到: {via_to_thread!r}")
+    print(f"  run_in_executor 读到: {via_executor!r}")
+    print("\n  -> to_thread 内部会 copy_context()，上下文能进线程；")
+    print("     run_in_executor 不会，traceId / 用户身份会丢")
+    print("  [建议] 需要上下文传递时一律用 asyncio.to_thread")
+
+
+# ---------------------------------------------------------------------------
+# 6.2 优化：限制线程池大小
+# ---------------------------------------------------------------------------
+async def demo_custom_executor():
+    """自定义默认线程池，避免线程无限膨胀。"""
+    print("\n=== 8. 限制线程池大小 ===")
+    import concurrent.futures
+
+    loop = asyncio.get_running_loop()
+
+    print("  场景 A：默认池（本机 24 线程）")
+    start = time.perf_counter()
+    await asyncio.gather(*[asyncio.to_thread(time.sleep, 0.1) for _ in range(6)])
+    print(f"    6 个 0.1s 任务: {time.perf_counter()-start:.2f}s")
+
+    print("\n  场景 B：自定义 2 线程池")
+    original = getattr(loop, "_default_executor", None)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        loop.set_default_executor(pool)
+        start = time.perf_counter()
+        await asyncio.gather(*[asyncio.to_thread(time.sleep, 0.1) for _ in range(6)])
+        cost = time.perf_counter() - start
+        print(f"    6 个 0.1s 任务: {cost:.2f}s  <- 3 批 x 0.1s")
+    # 恢复原执行器，否则后半段 to_thread 会报“executor shutdown”
+    loop.set_default_executor(concurrent.futures.ThreadPoolExecutor())
+    del original
+
+    print("\n  [要点] 线程池大小直接决定并发上限：")
+    print("     池子太大 -> 线程栈（约8MB/个）+ 上下文切换开销，可能拖垮内存")
+    print("     池子太小 -> 并发上不去，任务排队")
+    print("  [建议] 按 IO 特性估算：max_workers ≈ 期望并发数，不要盲目调大")
+
+
+# ---------------------------------------------------------------------------
+# 6.3 优化：to_thread + Semaphore 双层限流
+# ---------------------------------------------------------------------------
+async def demo_thread_with_semaphore():
+    """线程池有界但排队无界 —— 需要再加 Semaphore。"""
+    print("\n=== 9. to_thread + Semaphore 双层限流 ===")
+
+    sem = asyncio.Semaphore(5)
+    concurrency_peak = 0
+    current = 0
+
+    async def limited_task(i: int) -> int:
+        nonlocal concurrency_peak, current
+        async with sem:                     # ← 先限流
+            current += 1
+            concurrency_peak = max(concurrency_peak, current)
+            try:
+                return await asyncio.to_thread(time.sleep, 0.05)
+            finally:
+                current -= 1
+
+    start = time.perf_counter()
+    await asyncio.gather(*[limited_task(i) for i in range(50)])
+    cost = time.perf_counter() - start
+
+    print(f"  50 个任务、Semaphore=5: 耗时 {cost:.2f}s")
+    print(f"  实测峰值并发: {concurrency_peak}  <- 被限制在 5")
+    print("\n  [为什么两层都要]")
+    print("     Semaphore   控制【同时进入】的任务数，保护下游服务")
+    print("     线程池      控制【实际并行】的线程数，保护本机内存")
+    print("     只有线程池: 10000 个任务已入队，内存先炸")
+    print("     只有 Semaphore: 下游不被打挂，但线程池仍可能扛不住")
+
+    print("  [必配] 阻塞调用一定要带 timeout，否则线程可能永久卡住")
+    print("     requests.get(url, timeout=5)")
+
+
+# ---------------------------------------------------------------------------
 # 7. 事件循环如何调度：用 call_soon 观察调度顺序
 # ---------------------------------------------------------------------------
 async def demo_scheduling():
-    print("\n=== 7. 事件循环调度顺序 ===")
+    print("\n=== 10. 事件循环调度顺序 ===")
     loop = asyncio.get_running_loop()
 
     order = []
@@ -274,7 +370,7 @@ async def demo_scheduling():
 # 5. 底层 API：手动管理循环（不推荐，了解即可）
 # ---------------------------------------------------------------------------
 def demo_low_level_api():
-    print("\n=== 8. 底层 API（了解即可）===")
+    print("\n=== 11. 底层 API（了解即可）===")
     # 老写法（3.10 起已不推荐）：
     #   loop = asyncio.get_event_loop()
     #   loop.run_until_complete(coro)
@@ -306,7 +402,7 @@ def demo_low_level_api():
 # 6. 多个事件循环（一般不需要，了解边界情况）
 # ---------------------------------------------------------------------------
 def demo_multiple_loops():
-    print("\n=== 9. 每个线程一个循环 ===")
+    print("\n=== 12. 每个线程一个循环 ===")
     import threading
 
     results = []
@@ -338,6 +434,9 @@ async def main():
     await demo_blocking_antipattern()
     await demo_file_io_options()
     await demo_to_thread_caveats()
+    await demo_contextvar_in_thread()
+    await demo_custom_executor()
+    await demo_thread_with_semaphore()
     await demo_scheduling()
     demo_low_level_api()
     demo_multiple_loops()
