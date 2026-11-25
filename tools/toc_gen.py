@@ -153,18 +153,21 @@ def process_md(md_file: Path, fix: bool, verbose: bool) -> tuple[int, int, list[
             f"({m.group('path')}#L{block.start}-L{block.end})\n\n{fenced}"
         )
 
-        # 已经转换过的片段：先检查现有 include 的行区间是否仍然正确
-        # （源码变动后行号会漂移，不能简单认为“有 include 就跳过”）
-        tail = text[m.end(): m.end() + 400]
-        stale = re.search(
-            r"\{\{#include " + re.escape(f"../code/{py_rel}") + r":\d+:\d+\}\}", tail
+        # 已经转换过的片段：检查【紧邻】链接的那个 include 块是否仍然正确。
+        # 注意必须限定在链接后紧跟的第一个代码块内，否则同一链接后面
+        # 如果还有别的 include 块，会被误认为“已有正确 include”而重复插入。
+        adjacent = re.match(
+            r"\s*\n\s*\n```[a-zA-Z]*\s*\n\s*(\{\{#include "
+            + re.escape(f"../code/{py_rel}")
+            + r":\d+:\d+\}\})\s*\n```",
+            text[m.end(): m.end() + 300],
         )
-        if stale:
-            if stale.group(0) == inc:
+        if adjacent:
+            if adjacent.group(1) == inc:
                 skipped += 1
                 continue
-            # 链接 + 旧 include 组成的整段，一起替换成新内容
-            seg_end = m.end() + stale.end()
+            # 链接 + 紧邻的旧 include，整段替换成新内容
+            seg_end = m.end() + adjacent.end()
             replacements.append((m.start(), seg_end, new_text))
             converted += 1
             if verbose:

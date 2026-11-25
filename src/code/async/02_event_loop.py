@@ -96,10 +96,158 @@ async def demo_run_in_executor():
 
 
 # ---------------------------------------------------------------------------
-# 4. 事件循环如何调度：用 call_soon 观察调度顺序
+# 4. 阻塞调用：哪些、为什么、怎么办
+# ---------------------------------------------------------------------------
+# 本节回答一个实际问题：async def 里能不能调 open() / requests？
+# 答案是「能调，但会卡住整个事件循环」，因为它们都是同步阻塞的。
+
+
+def blocking_read(path: str) -> str:
+    """同步阻塞读文件（模拟真实文件 I/O）。"""
+    _ = time.sleep(0.1)          # 真实场景是磁盘 I/O 或 requests.get
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+async def demo_blocking_antipattern():
+    """对比：阻塞调用 vs 异步挂起，看事件循环是否被卡住。"""
+    print("\n=== 4. 阻塞调用会卡住整个事件循环 ===")
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Path(tmp) / "data.txt"
+        p.write_text("hello async", encoding="utf-8")
+
+        # ① 反面：在协程里直接调阻塞函数
+        async def bad_task(i: int):
+            return blocking_read(str(p))       # 直接调用，卡住循环
+
+        start = time.perf_counter()
+        results = await asyncio.gather(*[bad_task(i) for i in range(5)])
+        bad_cost = time.perf_counter() - start
+        print(f"  ❌ 直接调阻塞函数 × 5: {bad_cost:.2f}s  "
+              f"（理论并发应为 0.1s，实际串行）")
+
+        # ② 侧面证据：阻塞期间其他协程完全无法运行
+        ticks = 0
+
+        async def heartbeat():
+            nonlocal ticks
+            for _ in range(50):
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        async def blocking_hold():
+            blocking_read(str(p))      # 阻塞 0.1s
+
+        hb = asyncio.create_task(heartbeat())
+        await blocking_hold()
+        ticks_during_block = ticks
+        await hb
+        print(f"  → 阻塞的 0.1s 里，心跳只跑了 {ticks_during_block} 次"
+              f"（若不被阻塞应约 10 次）")
+
+        # ③ 正面：to_thread 把阻塞丢进线程池
+        async def good_task(i: int):
+            return await asyncio.to_thread(blocking_read, str(p))
+
+        start = time.perf_counter()
+        await asyncio.gather(*[good_task(i) for i in range(5)])
+        good_cost = time.perf_counter() - start
+        print(f"  ✅ asyncio.to_thread × 5: {good_cost:.2f}s  "
+              f"（约 0.1s，真并发）")
+
+        print(f"\n  提速约 {bad_cost / good_cost:.1f}x")
+
+    print("\n  结论：async def 里【可以】调阻塞函数，但整个事件循环会停住，")
+    print("        所有其他协程一起卡")
+
+
+async def demo_file_io_options():
+    """读文件的三种方案。"""
+    print("\n=== 5. 读文件：三种方案 ===")
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Path(tmp) / "demo.txt"
+        p.write_text("line1\nline2\n", encoding="utf-8")
+
+        # 方案 A：直接 open（阻塞）——小文件、低频调用才可接受
+        with open(p, encoding="utf-8") as f:
+            content_a = f.read()
+        print(f"  A. 直接 open：{content_a.strip()!r}  <- 阻塞")
+
+        # 方案 B：to_thread（推荐，无额外依赖）
+        def _read():
+            with open(p, encoding="utf-8") as f:
+                return f.read()
+
+        content_b = await asyncio.to_thread(_read)
+        print(f"  B. to_thread： {content_b.strip()!r}  <- 不阻塞循环")
+
+        # 向 to_thread 传参数
+        def _read_lines(n: int):
+            with open(p, encoding="utf-8") as f:
+                return f.readlines()[:n]
+
+        lines = await asyncio.to_thread(_read_lines, 1)
+        print(f"  B2. 带参数：   {lines}  <- 位置参数直接跟后面")
+
+        # 方案 C：aiofiles（需安装，真异步 I/O）
+        try:
+            import aiofiles
+            async with aiofiles.open(p, encoding="utf-8") as f:
+                content_c = await f.read()
+            print(f"  C. aiofiles：  {content_c.strip()!r}  <- 专用异步库")
+        except ImportError:
+            print("  C. aiofiles：  [未安装] pip install aiofiles（可选方案）")
+
+    print("\n  选择建议：")
+    print("    - 绝大多数场景：asyncio.to_thread（零依赖）")
+    print("    - 高频小文件读写：aiofiles（避免线程池开销）")
+    print("    - 启动时读一次配置：直接用 open 即可")
+
+
+async def demo_to_thread_caveats():
+    """to_thread 的代价与限制。"""
+    print("\n=== 6. to_thread 的代价 ===")
+
+    loop = asyncio.get_running_loop()
+    executor = getattr(loop, "_default_executor", None)
+    max_workers = getattr(executor, "_max_workers", "未知")
+    print(f"  默认线程池上限: {max_workers}（CPU 数 + 4）")
+    print("  -> 全是阻塞调用时，并发度受线程数限制，不会无限扩展")
+
+    # 20 个 0.1s 阻塞任务（若线程数够多，能全部并发完成）
+    start = time.perf_counter()
+    await asyncio.gather(*[asyncio.to_thread(time.sleep, 0.1) for _ in range(20)])
+    cost = time.perf_counter() - start
+    print(f"\n  20 个 0.1s 阻塞任务：{cost:.2f}s")
+    if isinstance(max_workers, int):
+        waves = -(-20 // max_workers)          # 向上取整的批数
+        print(f"  {max_workers} 个线程需要约 {waves} 批，"
+              f"理论下限约 {waves * 0.1:.1f}s")
+    print("  -> 任务数远超线程数时，会按批次排队，耗时成比例增长")
+
+    print("\n  [限制清单]")
+    print("    1. 受线程数限制，不是真正的无限并发")
+    print("    2. GIL 依然存在：CPU 密集任务用 to_thread 不会变快")
+    print("    3. CPU 密集应用 ProcessPoolExecutor")
+    print("    4. to_thread 不传递 ContextVar（需 copy_context）")
+    print("    5. 线程里的异常会原样抛回协程")
+
+    print("  [Java 对比]")
+    print("    to_thread ≈ CompletableFuture.supplyAsync(fn, executor)")
+    print("    同样的线程池上限、同样的异常传播方式")
+
+
+# ---------------------------------------------------------------------------
+# 7. 事件循环如何调度：用 call_soon 观察调度顺序
 # ---------------------------------------------------------------------------
 async def demo_scheduling():
-    print("\n=== 4. 事件循环调度顺序 ===")
+    print("\n=== 7. 事件循环调度顺序 ===")
     loop = asyncio.get_running_loop()
 
     order = []
@@ -126,7 +274,7 @@ async def demo_scheduling():
 # 5. 底层 API：手动管理循环（不推荐，了解即可）
 # ---------------------------------------------------------------------------
 def demo_low_level_api():
-    print("\n=== 5. 底层 API（了解即可）===")
+    print("\n=== 8. 底层 API（了解即可）===")
     # 老写法（3.10 起已不推荐）：
     #   loop = asyncio.get_event_loop()
     #   loop.run_until_complete(coro)
@@ -158,7 +306,7 @@ def demo_low_level_api():
 # 6. 多个事件循环（一般不需要，了解边界情况）
 # ---------------------------------------------------------------------------
 def demo_multiple_loops():
-    print("\n=== 6. 每个线程一个循环 ===")
+    print("\n=== 9. 每个线程一个循环 ===")
     import threading
 
     results = []
@@ -187,6 +335,9 @@ async def main():
     demo_asyncio_run()
     await demo_current_loop()
     await demo_run_in_executor()
+    await demo_blocking_antipattern()
+    await demo_file_io_options()
+    await demo_to_thread_caveats()
     await demo_scheduling()
     demo_low_level_api()
     demo_multiple_loops()

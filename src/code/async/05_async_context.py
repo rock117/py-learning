@@ -213,6 +213,129 @@ async def downstream() -> str:
     return f"[{_request_id.get()}] user={_user_id.get()}"
 
 
+# ---------------------------------------------------------------------------
+# 额外：asynccontextmanager 的执行流程
+# ---------------------------------------------------------------------------
+# [对照] 与同步版 @contextmanager 完全同构，只是 yield 前后都可以 await。
+
+
+async def demo_acm_flow():
+    """@asynccontextmanager 的执行流程：yield 把协程一分为二。"""
+    print("\n=== 7. asynccontextmanager 的执行流程 ===")
+
+    @asynccontextmanager
+    async def traced(name: str):
+        print("    ① 进 async with 前：开始执行函数体")
+        await asyncio.sleep(0.01)          # 进入时也可以是异步的
+        print("    ② 相当于 __aenter__（可以是协程）")
+        try:
+            yield f"<{name}>"             # ③ 暂停，值绑给 as
+        finally:
+            await asyncio.sleep(0.01)      # 退出时也可以是异步的
+            print("    ④ 回到 yield 之后（相当于 __aexit__）")
+
+    async with traced("res") as x:
+        print(f"    ③ with 块体执行，x = {x}")
+
+    print("\n  与同步版的对照：")
+    rows = [
+        ("同步 @contextmanager", "异步 @asynccontextmanager"),
+        ("def", "async def"),
+        ("with", "async with"),
+        ("__enter__ / __exit__", "__aenter__ / __aexit__（都是协程）"),
+        ("yield 前后同步执行", "yield 前后都可以 await"),
+    ]
+    widths = [max(len(r[i]) for r in rows) for i in range(2)]
+    for idx, row in enumerate(rows):
+        print("    " + " | ".join(row[i].ljust(widths[i]) for i in range(2)))
+        if idx == 0:
+            print("    " + "-+-".join("-" * w for w in widths))
+
+    mgr = traced("demo")
+    print(f"\n  实际类型: {type(mgr).__name__}")
+    print("  [要点] 必须是 async def + async with，两者不能混用")
+
+
+async def demo_acm_exceptions():
+    """asynccontextmanager 的异常语义，以及 CancelledError 的坑。"""
+    print("\n=== 8. 异步上下文管理器的异常与取消 ===")
+
+    # ① 吞掉普通异常
+    @asynccontextmanager
+    async def swallow_value_error():
+        try:
+            yield
+        except ValueError as exc:
+            print(f"    [吞掉] ValueError: {exc}")
+
+    async with swallow_value_error():
+        raise ValueError("看不见我")
+    print("    程序继续执行")
+
+    # ② 处理后重抛（推荐）
+    @asynccontextmanager
+    async def log_and_reraise():
+        try:
+            yield
+        except Exception as exc:
+            print(f"    [记录] {type(exc).__name__}: {exc}")
+            raise
+
+    try:
+        async with log_and_reraise():
+            raise RuntimeError("要传出去")
+    except RuntimeError:
+        print("    异常已向上传播")
+
+    # ③ 致命坑：吞掉 CancelledError
+    print("\n  ③ 吞掉 CancelledError 的后果：")
+
+    @asynccontextmanager
+    async def bad_suppressor():
+        try:
+            yield
+        except BaseException:      # ❌ 连 CancelledError 一起吞
+            print("    [错误示范] 吞掉了取消信号")
+
+    async def worker():
+        async with bad_suppressor():
+            await asyncio.sleep(10)
+
+    task = asyncio.create_task(worker())
+    await asyncio.sleep(0.05)
+    task.cancel()
+    await task                               # 演示：取消被吞，不抛异常
+    print(f"    -> task.done()={task.done()}  "
+          f"task.cancelled()={task.cancelled()}")
+    print("    cancelled()=False 说明取消【没有真正生效】")
+    print("    调用方以为取消了，实际上资源清理和状态回滚都可能被跳过")
+
+    # ④ 正确做法：只拦具体异常，CancelledError 让它传播
+    @asynccontextmanager
+    async def good_suppressor():
+        try:
+            yield
+        except ValueError:          # ✅ 只拦业务异常
+            print("    [忽略] ValueError")
+
+    async def worker2():
+        async with good_suppressor():
+            await asyncio.sleep(10)
+
+    task2 = asyncio.create_task(worker2())
+    await asyncio.sleep(0.05)
+    task2.cancel()
+    try:
+        await task2
+    except asyncio.CancelledError:
+        print("    -> 正确写法：CancelledError 正常传播，"
+              f"cancelled()={task2.cancelled()}")
+
+    print("\n  [要点] CancelledError 继承自 BaseException，"
+          "except Exception 拦不住，写成 except BaseException 就会吞掉取消")
+    print("  [规则] 清理逻辑放 finally，不要在 except 里“包住一切”")
+
+
 async def demo_contextvars():
     """contextvars：协程间的上下文隔离。"""
     print("\n=== contextvars：协程级上下文隔离 ===")
@@ -261,6 +384,8 @@ async def main():
     await demo_connection_pool()
     await demo_nested()
     await demo_http_session()
+    await demo_acm_flow()
+    await demo_acm_exceptions()
     await demo_contextvars()
 
     print("\n" + "=" * 60)

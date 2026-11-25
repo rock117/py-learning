@@ -20,6 +20,7 @@
 {{#include ../code/async/02_event_loop.py:56:66}}
 ```
 
+
 ### asyncio.run —— 推荐入口
 
 `asyncio.run(main())` 封装了完整的生命周期管理：
@@ -37,6 +38,7 @@
 {{#include ../code/async/02_event_loop.py:31:55}}
 ```
 
+
 ## Java 对比
 
 | Python | Java | 说明 |
@@ -51,10 +53,12 @@
 事件循环是单线程的，如果协程中必须调用阻塞代码（如 `requests.get`、`time.sleep`），
 需要用 `run_in_executor` 把它丢到线程池执行，避免卡住事件循环。
 
-> [run_in_executor 三种方式](../code/async/02_event_loop.py#L73-L100)
+> [run_in_executor 三种方式](../code/async/02_event_loop.py#L73-L102)
 
 ```python
-{{#include ../code/async/02_event_loop.py:73:100}}
+{{#include ../code/async/02_event_loop.py:73:102}}
+```
+
 ```
 
 三种方式：
@@ -64,15 +68,124 @@
 
 这对应 Java 的 `CompletableFuture.supplyAsync(blockingFn, executor)`。
 
+## 阻塞调用：哪些、为什么、怎么办
+
+这是实际开发中最重要的一节。先回答一个常见问题：
+
+> **`async def` 里能不能调 `open()` / `requests.get`？**
+> 能调，**但整个事件循环会停住**，所有其他协程一起卡。
+
+### 代价有多大
+
+> [阻塞对比演示](../code/async/02_event_loop.py#L112-L164)
+
+```python
+{{#include ../code/async/02_event_loop.py:112:164}}
+```
+
+
+实测：5 个“读文件”任务（每个阻塞 0.1s）
+
+| 写法 | 耗时 | 说明 |
+|------|------|------|
+| 直接在 `async def` 里调 | **0.52s** | 串行执行，5 × 0.1s |
+| `await asyncio.to_thread(...)` | **0.10s** | 真并发 |
+
+提速 **5.1 倍**。
+
+更直观的证据——阻塞期间心跳协程完全无法运行：
+
+```
+→ 阻塞的 0.1s 里，心跳只跑了 0 次（若不被阻塞应约 10 次）
+```
+
+> [要点] 事件循环是单线程的。一个协程里出现阻塞调用，**整个循环停转**，
+> 所有并发能力归零。这就是“用了 asyncio 却没有变快”的根本原因。
+
+### 哪些是阻塞的
+
+| 阻塞（需桥接） | 异步替代 |
+|---|---|
+| `open()` / `f.read()` / `f.write()` | `asyncio.to_thread` / `aiofiles` |
+| `requests.get()` | `httpx.AsyncClient` / `aiohttp` |
+| `psycopg2` / `mysqlclient` | `asyncpg` / `aiomysql` / SQLAlchemy async |
+| `time.sleep()` | `asyncio.sleep()` |
+| `urllib.request` | `aiohttp` |
+| 大量 CPU 计算 | `ProcessPoolExecutor` |
+| `boto3` | `aioboto3` |
+
+> ⚠️ 判断标准：**函数名里没有 `async`、返回的不是 awaitable，就是阻塞的**。
+> 不要因为“它是 IO，应该不阻塞吧”而想当然。
+
+### 读文件：三种方案
+
+> [文件 I/O 三种方案](../code/async/02_event_loop.py#L167-L210)
+
+```python
+{{#include ../code/async/02_event_loop.py:167:210}}
+```
+
+
+```python
+# A. 直接 open —— 阻塞（仅适合启动时读配置等一次性操作）
+with open(path, encoding="utf-8") as f:
+    content = f.read()
+
+# B. to_thread —— 推荐，零依赖
+def _read():
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+content = await asyncio.to_thread(_read)
+
+# B2. 带参数：位置参数直接跟在后面
+lines = await asyncio.to_thread(_read_lines, 1)
+
+# C. aiofiles —— 专用异步库，高频小文件场景
+async with aiofiles.open(path, encoding="utf-8") as f:
+    content = await f.read()
+```
+
+选择建议：
+
+| 场景 | 方案 |
+|------|------|
+| **绝大多数场景** | `asyncio.to_thread`（零依赖） |
+| 高频小文件读写 | `aiofiles`（避免线程池开销） |
+| 启动时读一次配置 | 直接用 `open` 即可 |
+
+### `to_thread` 的代价
+
+> [to_thread 的限制](../code/async/02_event_loop.py#L213-L248)
+
+```python
+{{#include ../code/async/02_event_loop.py:213:248}}
+```
+
+
+| 限制 | 说明 |
+|------|------|
+| **受线程数限制** | 默认 `min(32, CPU+4)`，本机实测 24 个线程 |
+| **GIL 依然存在** | CPU 密集任务用它不会变快 |
+| CPU 密集场景 | 应该用 `ProcessPoolExecutor` |
+| 不传递 `ContextVar` | 需显式 `copy_context()` |
+| 异常传播 | 线程里的异常会原样抛回协程 ✅ |
+
+实测：20 个 0.1s 阻塞任务，24 线程下 1 批完成（0.10s）；若超过线程数，会按批次排队。
+
+> [Java 对比] `to_thread` ≈ `CompletableFuture.supplyAsync(fn, executor)`，
+> 同样的线程池上限、同样的异常传播方式。
+
 ## 调度顺序：call_soon
 
 `call_soon` 把一个同步回调加入事件循环的下一轮执行。
 通过它可以观察事件循环的调度顺序：
 
-> [调度顺序演示](../code/async/02_event_loop.py#L101-L127)
+> [调度顺序演示](../code/async/02_event_loop.py#L249-L275)
 
 ```python
-{{#include ../code/async/02_event_loop.py:101:127}}
+{{#include ../code/async/02_event_loop.py:249:275}}
+```
+
 ```
 
 理解要点：
@@ -91,10 +204,12 @@ loop.close()
 
 新写法 `asyncio.run` 封装了上面所有步骤。日常开发**请用 `asyncio.run`**。
 
-> [底层 API 演示](../code/async/02_event_loop.py#L128-L159)
+> [底层 API 演示](../code/async/02_event_loop.py#L276-L307)
 
 ```python
-{{#include ../code/async/02_event_loop.py:128:159}}
+{{#include ../code/async/02_event_loop.py:276:307}}
+```
+
 ```
 
 ## 多个事件循环
@@ -102,10 +217,12 @@ loop.close()
 一般不需要多个循环。但在某些场景（如子线程中运行异步代码），
 可以为每个线程创建独立的循环：
 
-> [每线程一个循环](../code/async/02_event_loop.py#L160-L181)
+> [每线程一个循环](../code/async/02_event_loop.py#L308-L329)
 
 ```python
-{{#include ../code/async/02_event_loop.py:160:181}}
+{{#include ../code/async/02_event_loop.py:308:329}}
+```
+
 ```
 
 ## 小结
@@ -113,6 +230,7 @@ loop.close()
 - 事件循环是 asyncio 的调度核心，单线程轮询
 - 用 `asyncio.run()` 作为入口，自动管理循环生命周期
 - 阻塞调用用 `run_in_executor` / `asyncio.to_thread` 桥接
+- **`async def` 里直接调阻塞函数会卡住整个循环**，并发能力归零；读文件用 `to_thread` 或 `aiofiles`
 - `call_soon` 可观察底层调度顺序
 - 底层 API 了解即可，日常用 `asyncio.run`
 
