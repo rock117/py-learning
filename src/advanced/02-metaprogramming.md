@@ -36,6 +36,51 @@ Python 的元编程比 Java 更直接：元类可在类创建时动态修改类�
 
 描述符常用于 ORM 框架（如 Django 的字段、SQLAlchemy 的 Column）。
 
+### 普通方法也是描述符
+
+这一点很重要：**`function` 本身就实现了 `__get__`**，所以类是方法、property、staticmethod
+乃至 ORM 字段，底层走的是同一套机制。
+
+```python
+def f(self, x): return x
+f.__get__          # 存在！函数是非数据描述符
+```
+
+调用时根据“从哪里访问”返回不同结果：
+
+| 访问方式 | 调用 | 返回 |
+|---------|------|------|
+| 实例 | `obj.method` | `__get__(obj, type(obj))` -> **绑定方法**（self 已固定） |
+| 类 | `Klass.method` | `__get__(None, Klass)` -> **裸函数**（需手动传 self） |
+
+这解释了两件经常让人困惑的事：
+
+```python
+Klass.method              # <function>      未绑定
+obj.method                # <bound method>  self 已绑定
+Klass.method(obj, 1)      # 等价于 obj.method(1)
+```
+
+以及为什么“通过类访问会沿 MRO 找”：因为 `Klass.method` 用的是
+`type.__getattribute__`，它本身就会走 MRO。
+
+> 使用层面的讲解（什么时候该这么写、有什么坑）见
+> [特殊方法 - 方法访问与绑定](../../basics/10-dunder-methods.md#方法访问与绑定)。
+
+### 描述符协议与查找优先级
+
+实例属性查找的完整顺序：
+
+1. **数据描述符**（有 `__set__`）—— 优先级最高
+2. 实例 `__dict__`
+3. **非数据描述符**（只有 `__get__`，包括普通函数）
+4. 类属性 / `__getattr__` 兵底
+
+这解释了为什么：
+
+- 普通方法（非数据描述符）可以被实例属性遮蔽（`obj.method = 1` 能成功）
+- 而 `property`（数据描述符）不能（赋值会走 setter 或报 `AttributeError`）
+
 ## property：描述符的语法糖
 
 `@property` 是描述符的便捷写法，本质是一个数据描述符：

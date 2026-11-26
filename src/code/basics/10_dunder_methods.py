@@ -554,12 +554,91 @@ def demo_call():
 
 
 # =============================================================================
-# 9. 陷阱
+# 9. 方法访问与绑定
+# =============================================================================
+
+def demo_method_binding():
+    """Klass.method vs instance.method：为什么两者不一样。"""
+    print("\n=== 12. 方法访问与绑定 ===")
+
+    class HandlerBase:
+        def __call__(self, x: int) -> int:
+            return x * 2
+
+        def name(self) -> str:
+            return "base"
+
+    h = HandlerBase()
+
+    print("  ① 类访问 vs 实例访问：")
+    from_class = HandlerBase.__call__
+    from_instance = h.__call__
+    print(f"     HandlerBase.__call__ -> {type(from_class).__name__}")
+    print(f"     h.__call__           -> {type(from_instance).__name__}")
+    print(f"     两者是同一函数吗: {from_class is from_instance.__func__}")
+
+    print("\n  ② 调用方式：")
+    print(f"     HandlerBase.__call__(h, 5) = {HandlerBase.__call__(h, 5)}   <- 手动传 self")
+    print(f"     h.__call__(5)              = {h.__call__(5)}        <- self 已绑定")
+    print(f"     h(5)                       = {h(5)}        <- 等价")
+
+    # 不传 self 会怎样
+    try:
+        HandlerBase.__call__(5)
+    except TypeError as exc:
+        # 异常消息里会带 <locals> 前缀，因为类定义在函数内部
+        print(f"\n     不传 self -> {type(exc).__name__}: "
+              f"missing 1 required positional argument: 'x'")
+        print("        （少传的其实是 self，只是报错指向参数名）")
+
+    print("\n  ③ 绕过子类重写：")
+
+    class Sub(HandlerBase):
+        def __call__(self, x: int) -> int:
+            return x + 1
+
+    s = Sub()
+    print(f"     s(5)                        = {s(5)}   <- 走 Sub 的重写")
+    print(f"     HandlerBase.__call__(s, 5)  = {HandlerBase.__call__(s, 5)}   <- 绕过重写")
+    print("     [用途] 装饰器/包装器里取原实现；日常调父类应用 super()")
+
+    print("\n  ④ 类属性查找会沿 MRO：")
+
+    class OnlyInParent(HandlerBase):
+        pass
+
+    print(f"     OnlyInParent.name = {OnlyInParent.name}")
+    print(f"     但 OnlyInParent.__dict__ 里有 name 吗: "
+          f"{'name' in OnlyInParent.__dict__}")
+    print(f"     HandlerBase.__dict__['name'] -> "
+          f"{type(HandlerBase.__dict__['name']).__name__}   <- 原始未绑定函数")
+
+    print("\n  ⑤ __dict__ 拿原始定义，getattr 走查找：")
+    raw = HandlerBase.__dict__["name"]
+    via_getattr = getattr(HandlerBase, "name")
+    print(f"     __dict__['name']      -> {type(raw).__name__}")
+    print(f"     getattr(Klass,'name') -> {type(via_getattr).__name__}")
+    print("     两者在类上都是普通函数；差异在于子类：")
+    print(f"     OnlyInParent.__dict__ 里没有 name -> KeyError")
+
+    print("\n  ⑥ 为什么是这个行为：")
+    print("     普通函数实现了 __get__，所以它是【非数据描述符】")
+    print("     通过实例访问 -> __get__(instance, owner) 返回绑定方法")
+    print("     通过类访问   -> __get__(None, owner) 返回函数本身")
+    print("     原理详见 advanced/02-metaprogramming 的描述符一节")
+
+    print("\n  [Java 对比]")
+    print("     Java 没有“方法对象”这个层级的访问；")
+    print("     最接近的是 Method.invoke(obj, args)，但那是反射调用，不是绑定语义")
+
+
+# =============================================================================
+# 10. 陷阱
 # =============================================================================
 
 def demo_pitfalls():
     """常见错误。"""
-    print("\n=== 12. 常见陷阱 ===")
+    print("\n=== 13. 常见陷阱 ===")
 
     print("  坑 1  返回 NotImplemented 写成 raise NotImplementedError")
     print("         __eq__ 里应该 return NotImplemented，让 Python 尝试反射比较")
@@ -590,7 +669,7 @@ def demo_pitfalls():
 
 
 def print_java_mapping():
-    print("\n=== 13. Java 对照总表 ===")
+    print("\n=== 14. Java 对照总表 ===")
     rows = [
         ("Python", "Java", "说明"),
         ("__repr__", "toString()", "开发者视角，应可重建"),
@@ -631,6 +710,7 @@ def main():
     demo_new_vs_init()
     demo_del_warning()
     demo_call()
+    demo_method_binding()
     demo_pitfalls()
     print_java_mapping()
 

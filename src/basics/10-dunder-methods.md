@@ -443,12 +443,108 @@ callable(double)   # True
 
 > [场景] 有状态的函数、装饰器类、策略对象。
 
-## 常见陷阱
+## 方法访问与绑定
 
-> [完整演示](../code/basics/10_dunder_methods.py#L560-L589)
+看到 `HandlerBase.__call__(obj, x)` 这种写法时，需要弄清楚“类访问”和“实例访问”的差别。
+
+> [绑定行为实测](../code/basics/10_dunder_methods.py#L560-L637)
 
 ```python
-{{#include ../code/basics/10_dunder_methods.py:560:589}}
+{{#include ../code/basics/10_dunder_methods.py:560:637}}
+```
+
+### 类访问 vs 实例访问
+
+```python
+class HandlerBase:
+    def __call__(self, x):
+        return x * 2
+
+h = HandlerBase()
+```
+
+| 写法 | 得到什么 | 类型 |
+|------|-----------|------|
+| `HandlerBase.__call__` | **普通函数**，未绑定 | `function` |
+| `h.__call__` | **绑定方法**，`self` 已固定 | `method` |
+
+调用时必须相应处理：
+
+```python
+HandlerBase.__call__(h, 5)    # 10   ← 手动传 self
+h.__call__(5)                 # 10   ← self 已绑定
+h(5)                          # 10   ← 等价（__call__ 的特殊之处）
+```
+
+> ⚠️ 少传 `self` 会报 `TypeError: missing 1 required positional argument: 'x'`。
+> 注意报错指向的是 `x`，"少传的其实是 self"这一点需要自己知道。
+
+### 用途一：绕过子类重写
+
+```python
+class Sub(HandlerBase):
+    def __call__(self, x):
+        return x + 1
+
+s = Sub()
+s(5)                            # 6    ← 走 Sub 的重写
+HandlerBase.__call__(s, 5)      # 10   ← 绕过重写，用父类原实现
+```
+
+> ✅ 装饰器/包装器里需要拿“原实现”时有用。
+> ❌ **日常调父类请用 `super()`**，硬编码 `父类名.方法(self)` 在多继承下会重复执行
+> （见[类继承](09-inheritance.md)的菱形继承一节）。
+
+### 用途二：确认方法真正定义在哪个类
+
+**类属性查找也会沿 MRO**：
+
+```python
+class OnlyInParent(HandlerBase):
+    pass
+
+OnlyInParent.name                  # <function HandlerBase.name>  ← 来自父类
+'name' in OnlyInParent.__dict__    # False                       ← 自己没定义
+```
+
+要拿“自己定义的原始函数”，直接用 `__dict__`：
+
+```python
+HandlerBase.__dict__["name"]       # 原始函数，不经查找
+OnlyInParent.__dict__["name"]      # KeyError ← 因为确实没定义
+```
+
+| 写法 | 行为 |
+|------|------|
+| `Klass.method` / `getattr(Klass, "method")` | 沿 MRO 查找 |
+| `Klass.__dict__["method"]` | 只看本类，找不到抛 `KeyError` |
+
+### 为什么是这个行为
+
+根源是 **`function` 本身实现了 `__get__`**，所以它是（非数据）描述符：
+
+```
+通过实例访问 -> function.__get__(instance, owner) -> 绑定方法
+通过类访问   -> function.__get__(None, owner)     -> 函数本身
+```
+
+> 完整原理（描述符协议、数据/非数据描述符差异）见
+> [描述符 descriptor](../advanced/02-metaprogramming.md#描述符-descriptor)。
+
+### `__call__` 为什么可以写成 `h(5)`
+
+因为 `type(h).__call__` 存在——Python 对实例的调用会先查 `type(h)` 上的 `__call__`，
+再按同样规则绑定 `self`。这也是为什么前面强调“实例可调用”看的是**类**上的 `__call__`。
+
+> [Java 对比] Java 没有“方法对象”这个层级的访问语义。
+> 最接近的是 `Method.invoke(obj, args)`，但那是**反射调用**，不是绑定语义。
+
+## 常见陷阱
+
+> [完整演示](../code/basics/10_dunder_methods.py#L560-L637)
+
+```python
+{{#include ../code/basics/10_dunder_methods.py:560:637}}
 ```
 
 | 坑 | 后果 |
@@ -462,10 +558,10 @@ callable(double)   # True
 
 ## Java 对照总表
 
-> [完整对照](../code/basics/10_dunder_methods.py#L592-L614)
+> [完整对照](../code/basics/10_dunder_methods.py#L560-L637)
 
 ```python
-{{#include ../code/basics/10_dunder_methods.py:592:614}}
+{{#include ../code/basics/10_dunder_methods.py:560:637}}
 ```
 
 | Python | Java | 说明 |
@@ -493,6 +589,7 @@ callable(double)   # True
 - **`__getattr__` 只在找不到时调用，`__getattribute__` 每次访问都调用**
 - `__new__` 创建、`__init__` 初始化；单例和不可变类型才需要 `__new__`
 - **不要用 `__del__` 释放资源**，用 `with`
+- **`Klass.method` 是未绑定函数，`instance.method` 是绑定方法**；`Klass.__dict__` 才能拿到本类原始定义
 
 > 相关章节：[迭代协议](04-iteration-protocol.md)、[`with` 语句](05-with-statement.md)、[类继承](09-inheritance.md)、[元编程进阶](../advanced/02-metaprogramming.md)
 
