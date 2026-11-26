@@ -121,6 +121,9 @@ Java 对象字段默认就是固定的，类似 `__slots__` 的行为。
 
 ## 数据模型 dunder 方法
 
+> 系统讲解（各类协议、`__eq__`/`__hash__` 配套、`__getattr__` vs `__getattribute__`）
+> 见[特殊方法（dunder）](../basics/10-dunder-methods.md)。本节只列最常用对照。
+
 Python 通过 dunder（双下划线）方法实现运算符重载和协议：
 
 | dunder | Java 对应 | 用途 |
@@ -129,6 +132,9 @@ Python 通过 dunder（双下划线）方法实现运算符重载和协议：
 | `__lt__` | `Comparable.compareTo` | 排序 |
 | `__repr__` | `toString` | 字符串表示 |
 | `__iter__` | `Iterable.iterator` | 迭代 |
+
+> 元编程场景下，这些方法常与元类/描述符配合使用。例如元类通过 `__call__`
+> 拦截实例创建（见上文单例实现），描述符通过 `__get__` 拦截属性访问。
 
 > [dunder 方法实现示例](../code/advanced/02_metaprogramming.py#L350-L380)
 

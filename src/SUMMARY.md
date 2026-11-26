@@ -14,6 +14,7 @@
 - [模块与包机制](./basics/07-modules-and-packages.md)
 - [装饰器入门](./basics/08-decorators.md)
 - [类继承与 super()](./basics/09-inheritance.md)
+- [特殊方法（dunder）](./basics/10-dunder-methods.md)
 
 # 第一部分：异步编程
 
