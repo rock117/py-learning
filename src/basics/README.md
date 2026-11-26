@@ -22,6 +22,7 @@
 | [06 - 容易误解的关键字](06-keywords.md) | `lambda`/`global`/`nonlocal`/`yield`/`del`/`assert`/`is`/三元 | 逐项对照与陷阱 |
 | [07 - 模块与包机制](07-modules-and-packages.md) | `sys.path`、相对/绝对导入、`python -m`、`importlib` | classpath、`Class.forName` |
 | [08 - 装饰器入门](08-decorators.md) | 函数即对象、闭包、`@` 语法糖、三层嵌套、类装饰器 | AOP 切面 |
+| [09 - 类继承与 super()](09-inheritance.md) | `super()` 真实含义、多继承、MRO、Mixin、ABC、何时用继承 | `extends`、`super`、抽象类 |
 
 ## 为什么单独成章
 
@@ -72,5 +73,6 @@ s[100]       # 单索引越界才抛 IndexError
 6. **容易误解的关键字** —— `is` vs `==`、`assert` 在 `-O` 下失效等细节
 7. **模块与包机制** —— 导入系统，理解项目结构的前提
 8. **装饰器入门** —— `@property`/`@pytest.fixture`/`@app.route` 的底层机制
+9. **类继承与 super()** —— `super()` 不是“调父类”，是“调 MRO 下一个”
 
 > 📁 [本部分代码目录](../code/basics/)

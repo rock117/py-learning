@@ -71,7 +71,10 @@ Java 字段在编译期固定，不能运行时动态添加。Python 可以随�
 
 ## __mro__：方法解析顺序
 
-Python 支持多继承，用 **C3 线性化**算法确定方法查找顺序（MRO）。
+> 多继承、`super()` 跳转、C3 线性化的完整讲解见[类继承与 super()](../basics/09-inheritance.md)。
+> 本节只从【内省】角度展示如何查看 MRO。
+
+Python 支持多继承，用 **C3 线性化**算法确定方法查找顺序（MRO）。运行时可以查：
 
 ```python
 class D(B, C): pass
@@ -86,7 +89,8 @@ D.__mro__  # [D, B, C, A, object]
 
 ### Java 对比
 
-Java 不支持类多继承（只有接口多继承），没有 MRO 问题。Python 的 `super()` 按 MRO 跳转。
+Java 不支持类多继承（只有接口多继承），没有 MRO 问题。
+**注意：Python 的 `super()` 按 MRO 跳转，不是“调父类”**，详见[类继承](../basics/09-inheritance.md)。
 
 ## getattr / setattr / hasattr：动态属性访问
 
